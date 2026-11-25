@@ -1,9 +1,12 @@
 """FastAPI main application entry point."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from backend.app.api.v1.router import api_v1_router
 from backend.app.core.config import settings
 from backend.app.core.database import check_database_connection
@@ -77,6 +80,15 @@ def create_application() -> FastAPI:
     app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
     if settings.API_V1_PREFIX != "/api/v1":
         app.include_router(api_v1_router, prefix="/api/v1")
+
+    # Static Files & Receptionist Voice Console UI
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+        @app.get("/voice-console", include_in_schema=False)
+        async def voice_console():
+            return FileResponse(str(static_dir / "receptionist.html"))
 
     return app
 

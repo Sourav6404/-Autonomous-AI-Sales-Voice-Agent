@@ -70,6 +70,7 @@ class VoiceSession:
         self.started_at: datetime = datetime.now(timezone.utc)
         self.disconnect_task: Optional[asyncio.Task] = None
         self.audio_buffer: bytearray = bytearray()
+        self.pipeline: Optional[object] = None
 
 
 class VoiceSessionManager:
@@ -359,6 +360,18 @@ class VoiceSessionManager:
             await db.commit()
 
         return duration_sec, final_status
+
+    @classmethod
+    async def update_recording_consent(cls, call_id: UUID, org_id: UUID, consent: bool) -> None:
+        """Updates recording consent for a call in a point-in-time transaction."""
+        factory = cls.get_session_factory()
+        async with factory() as db:
+            call_stmt = select(Call).where(Call.id == call_id, Call.org_id == org_id)
+            call_res = await db.execute(call_stmt)
+            call = call_res.scalar_one_or_none()
+            if call:
+                call.recording_consent_given = consent
+                await db.commit()
 
     @classmethod
     def get_session(cls, conversation_id: UUID) -> Optional[VoiceSession]:

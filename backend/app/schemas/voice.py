@@ -58,12 +58,15 @@ class VoiceAuthMessage(BaseModel):
 
 
 class VoiceStartMessage(BaseModel):
-    """Client start-session control frame defining codec metadata."""
+    """Client start-session control frame defining codec metadata and consent."""
 
     type: Literal["start"] = "start"
     codec: Literal["pcm16"] = "pcm16"
     sample_rate: int = Field(16000, description="Audio sampling rate in Hz")
     channels: int = Field(1, description="Audio channels (mono)")
+    recording_consent: Optional[bool] = Field(
+        None, description="Explicit caller consent to record and persist call audio."
+    )
 
 
 class VoiceInterruptMessage(BaseModel):

@@ -56,6 +56,7 @@ from backend.app.services.voice.session_manager import (
     VoiceSessionState,
 )
 from backend.app.services.voice.ticket_service import VoiceTicketService
+from backend.app.services.voice.pipeline import VoicePipeline
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,7 @@ async def voice_stream_websocket(
 
     session: Optional[VoiceSession] = None
     conversation_id: Optional[UUID] = None
+    pipeline: Optional[VoicePipeline] = None
 
     try:
         # 2. Authenticate connection via ticket
@@ -204,7 +206,18 @@ async def voice_stream_websocket(
             ).model_dump_json()
         )
 
-        # 5. Active Message & Audio Frame Multiplexing Loop
+        # 5. Initialize Real-Time Voice Pipeline (VAD, STT, LLM Orchestrator, TTS)
+        pipeline = VoicePipeline(
+            conversation_id=session.conversation_id,
+            org_id=session.org_id,
+            user_id=session.user_id,
+            send_audio_chunk=websocket.send_bytes,
+            send_json_message=lambda msg: websocket.send_text(json.dumps(msg)),
+        )
+        session.pipeline = pipeline
+        await pipeline.start()
+
+        # 6. Active Message & Audio Frame Multiplexing Loop
         max_frame_bytes = settings.VOICE_FRAME_BYTES * 10  # Max 200ms per packet (6400 bytes)
         max_buffer_bytes = settings.VOICE_FRAME_BYTES * settings.VOICE_MAX_BUFFER_FRAMES
 
@@ -255,6 +268,9 @@ async def voice_stream_websocket(
 
                 session.audio_buffer.extend(audio_bytes)
 
+                # Stream audio into real-time voice pipeline
+                await pipeline.process_incoming_pcm(audio_bytes)
+
             elif "text" in message and message["text"]:
                 try:
                     payload_dict = json.loads(message["text"])
@@ -262,6 +278,7 @@ async def voice_stream_websocket(
 
                     if msg_type == "end_session":
                         end_msg = VoiceEndSessionMessage.model_validate(payload_dict)
+                        await pipeline.close()
                         duration, status_str = await VoiceSessionManager.handle_clean_hangup(
                             conversation_id=session.conversation_id,
                             reason=end_msg.reason or "user_hangup",
@@ -280,15 +297,22 @@ async def voice_stream_websocket(
 
                     elif msg_type == "interrupt":
                         _ = VoiceInterruptMessage.model_validate(payload_dict)
-                        # Clear in-memory buffer on barge-in
+                        # Clear in-memory buffer on barge-in and cancel active synthesis
                         session.audio_buffer.clear()
+                        await pipeline.trigger_barge_in()
                         logger.debug("Barge-in signaled for session %s", session.conversation_id)
 
                     elif msg_type == "set_mic_state":
                         _ = VoiceMicStateMessage.model_validate(payload_dict)
 
                     elif msg_type == "start":
-                        _ = VoiceStartMessage.model_validate(payload_dict)
+                        start_msg = VoiceStartMessage.model_validate(payload_dict)
+                        if start_msg.recording_consent is not None:
+                            await VoiceSessionManager.update_recording_consent(
+                                call_id=session.call_id,
+                                org_id=session.org_id,
+                                consent=start_msg.recording_consent,
+                            )
 
                 except ValidationError as ve:
                     logger.warning("Malformed voice control frame: %s", ve)
@@ -301,11 +325,15 @@ async def voice_stream_websocket(
 
     except (WebSocketDisconnect, RuntimeError) as e:
         logger.info("Voice WebSocket disconnected for conversation %s: %s", conversation_id, e)
+        if pipeline:
+            await pipeline.close()
         if conversation_id:
             await VoiceSessionManager.handle_disconnect(conversation_id, websocket)
 
     except Exception as e:
         logger.exception("Unhandled error in voice WebSocket loop: %s", e)
+        if pipeline:
+            await pipeline.close()
         try:
             await websocket.close(code=4500, reason="Internal error")
         except Exception:

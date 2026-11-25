@@ -69,6 +69,20 @@ class Settings(BaseSettings):
     VOICE_FRAME_BYTES: int = 640  # 20ms of 16kHz 16-bit mono PCM (320 samples * 2 bytes)
     VOICE_MAX_BUFFER_FRAMES: int = 250  # 5 seconds of audio buffer maximum
 
+    # Voice Providers (Deepgram, Cartesia, ElevenLabs)
+    STT_PROVIDER: Literal["deepgram", "mock"] = "deepgram"
+    DEEPGRAM_API_KEY: Optional[str] = None
+    DEEPGRAM_MODEL: str = "nova-2"
+    TTS_PROVIDER: Literal["cartesia", "elevenlabs", "mock"] = "cartesia"
+    CARTESIA_API_KEY: Optional[str] = None
+    CARTESIA_MODEL: str = "sonic-english"
+    CARTESIA_VOICE_ID: str = "a0e99841-438c-4a64-b679-ae501e7d6091"
+    ELEVENLABS_API_KEY: Optional[str] = None
+    ELEVENLABS_VOICE_ID: str = "21m00Tcm4TlvDq8ikWAM"
+    VAD_THRESHOLD: float = 0.02
+    VAD_SILENCE_TIMEOUT_MS: int = 400
+    VAD_SPEECH_TRIGGER_MS: int = 80
+
     # AI & LLM Provider Configuration
     DEFAULT_AI_PROVIDER: Literal["openai", "gemini"] = "openai"
     OPENAI_API_KEY: Optional[str] = None
