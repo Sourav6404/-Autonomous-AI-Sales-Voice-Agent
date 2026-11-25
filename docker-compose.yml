@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fortisales_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fortisales_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fortisales_secure_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-fortisales_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fortisales_user} -d ${POSTGRES_DB:-fortisales_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fortisales_network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  fortisales_network:
+    driver: bridge
