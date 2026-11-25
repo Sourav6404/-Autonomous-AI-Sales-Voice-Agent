@@ -47,10 +47,44 @@ async def readiness_probe():
         details="PostgreSQL connection active" if db_connected else "Unable to reach database",
     )
 
+    # Redis check
+    redis_status = ServiceStatus(status="healthy", details="In-memory store active (local dev/test)")
+    if settings.REDIS_URL:
+        try:
+            import redis
+            r = redis.from_url(settings.REDIS_URL, socket_timeout=1.0)
+            r.ping()
+            redis_status = ServiceStatus(status="healthy", details="Redis connection active")
+        except Exception:
+            if settings.APP_ENV == "production":
+                redis_status = ServiceStatus(status="unhealthy", details="Redis unreachable in production mode")
+            else:
+                redis_status = ServiceStatus(status="degraded", details="Redis offline; in-memory fallback active")
+
+    # AI Provider configuration status (without exposing secrets)
+    ai_model = settings.OPENAI_MODEL if settings.DEFAULT_AI_PROVIDER == "openai" else settings.GEMINI_MODEL
+    ai_status = ServiceStatus(
+        status="healthy",
+        details=f"Provider: {settings.DEFAULT_AI_PROVIDER} ({ai_model})",
+    )
+
+    # Voice Engine configuration status
+    voice_status = ServiceStatus(
+        status="healthy",
+        details=f"STT: {settings.STT_PROVIDER}, TTS: {settings.TTS_PROVIDER}",
+    )
+
+    services_report = {
+        "database": db_status,
+        "redis": redis_status,
+        "ai_provider": ai_status,
+        "voice_engine": voice_status,
+    }
+
     payload = ReadinessCheckResponse(
         status="ready" if db_connected else "not_ready",
         timestamp=datetime.now(timezone.utc),
-        services={"database": db_status},
+        services=services_report,
     )
 
     if not db_connected:
