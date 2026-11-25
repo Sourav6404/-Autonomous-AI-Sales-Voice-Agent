@@ -85,3 +85,37 @@ class OrchestrationTurnResponse(BaseModel):
     tool_calls_executed: List[Dict[str, Any]] = Field(default_factory=list)
     extracted_intelligence: Optional[CustomerIntentExtraction] = None
     conversation_status: str
+
+
+class HandoffItemResponse(BaseModel):
+    """Details for a conversation session escalated to human staff."""
+
+    conversation_id: UUID
+    call_id: Optional[UUID] = None
+    caller_phone_number: Optional[str] = None
+    customer_id: Optional[UUID] = None
+    customer_name: Optional[str] = None
+    status: str
+    turn_count: int
+    summary: Optional[str] = None
+    started_at: Optional[datetime] = None
+    taken_over_by_employee_id: Optional[UUID] = None
+    taken_over_by_name: Optional[str] = None
+    notes: Optional[str] = None
+    outcome: Optional[str] = None
+    created_at: datetime
+
+
+class HandoffTakeoverRequest(BaseModel):
+    """Payload to take over a handed-off conversation session."""
+
+    employee_id: Optional[UUID] = None
+    notes: Optional[str] = None
+
+
+class HandoffCreateRequest(BaseModel):
+    """Explicit request to trigger a human handoff."""
+
+    reason: str = Field(..., min_length=2, max_length=255, description="Reason for escalation")
+    urgency: str = Field("medium", pattern="^(low|medium|high|critical|urgent)$", description="Urgency level")
+    customer_callback_phone: Optional[str] = Field(None, description="Preferred callback phone number")

@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -16,12 +16,16 @@ from backend.app.core.tenant import TenantContext
 from backend.app.models.call import Call
 from backend.app.models.conversation import Conversation
 from backend.app.models.customer import Customer
+from backend.app.models.employee import Employee
 from backend.app.models.lead import Lead
 from backend.app.models.message import Message
 from backend.app.models.user import User
 from backend.app.schemas.conversation import (
     ConversationCreateRequest,
     ConversationResponse,
+    HandoffCreateRequest,
+    HandoffItemResponse,
+    HandoffTakeoverRequest,
     MessageCreateRequest,
     MessageResponse,
     OrchestrationTurnResponse,
@@ -30,6 +34,16 @@ from backend.app.schemas.conversation import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
+
+
+def _extract_customer_name(cust: Optional[Customer]) -> Optional[str]:
+    """Helper to assemble customer display name."""
+    if not cust:
+        return None
+    name_parts = [p for p in (cust.first_name, cust.last_name) if p]
+    if name_parts:
+        return " ".join(name_parts)
+    return cust.company_name or None
 
 
 @router.post(
@@ -94,6 +108,210 @@ async def create_conversation(
     await db.refresh(conv)
 
     return ConversationResponse.model_validate(conv)
+
+
+@router.get(
+    "/handoffs",
+    response_model=List[HandoffItemResponse],
+    summary="List all handed-off conversations and calls requiring human intervention",
+)
+async def list_handoffs(
+    include_taken_over: bool = False,
+    limit: int = 50,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[HandoffItemResponse]:
+    """Returns pending handed-off calls and conversations scoped to the active tenant."""
+    org_id = TenantContext.get_current_tenant_id()
+
+    query = (
+        select(Conversation, Call, Customer, Employee)
+        .outerjoin(Call, Conversation.call_id == Call.id)
+        .outerjoin(Customer, Call.customer_id == Customer.id)
+        .outerjoin(Employee, Call.taken_over_by_employee_id == Employee.id)
+        .where(
+            Conversation.org_id == org_id,
+            Conversation.status == "handed_off",
+        )
+    )
+
+    if not include_taken_over:
+        query = query.where(Call.taken_over_by_employee_id.is_(None))
+
+    query = query.order_by(Conversation.updated_at.desc()).limit(limit)
+    res = await db.execute(query)
+    rows = res.all()
+
+    items = []
+    for conv, call, cust, emp in rows:
+        caller_phone = call.caller_phone_number if call else None
+        cust_name = _extract_customer_name(cust)
+        taken_over_name = None
+        if emp and hasattr(emp, "title") and emp.title:
+            taken_over_name = emp.title
+
+        items.append(
+            HandoffItemResponse(
+                conversation_id=conv.id,
+                call_id=conv.call_id,
+                caller_phone_number=caller_phone,
+                customer_id=call.customer_id if call else None,
+                customer_name=cust_name,
+                status=conv.status,
+                turn_count=conv.turn_count,
+                summary=conv.summary,
+                started_at=call.started_at if call else conv.created_at,
+                taken_over_by_employee_id=call.taken_over_by_employee_id if call else None,
+                taken_over_by_name=taken_over_name,
+                notes=call.notes if call else None,
+                outcome=call.outcome if call else None,
+                created_at=conv.created_at,
+            )
+        )
+    return items
+
+
+@router.post(
+    "/{conversation_id}/handoff",
+    response_model=HandoffItemResponse,
+    summary="Directly trigger human handoff for an active conversation",
+)
+async def escalate_conversation(
+    conversation_id: UUID,
+    payload: HandoffCreateRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> HandoffItemResponse:
+    """Escalates conversation and linked call to human staff queue."""
+    org_id = TenantContext.get_current_tenant_id()
+
+    conv_query = (
+        select(Conversation, Call, Customer)
+        .outerjoin(Call, Conversation.call_id == Call.id)
+        .outerjoin(Customer, Call.customer_id == Customer.id)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.org_id == org_id,
+        )
+    )
+    res = await db.execute(conv_query)
+    row = res.first()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversation '{conversation_id}' was not found.",
+        )
+    conv, call, cust = row
+
+    conv.status = "handed_off"
+    ticket_id = f"ESC-{str(conversation_id)[:8].upper()}"
+
+    if call:
+        call.status = "handed_off"
+        call.outcome = "handed_off"
+        notes_str = f"Handoff escalation: {payload.reason}. Urgency: {payload.urgency}."
+        if payload.customer_callback_phone:
+            notes_str += f" Callback: {payload.customer_callback_phone}."
+        call.notes = f"{call.notes}\n{notes_str}" if call.notes else notes_str
+
+    await db.commit()
+    await db.refresh(conv)
+    if call:
+        await db.refresh(call)
+
+    return HandoffItemResponse(
+        conversation_id=conv.id,
+        call_id=conv.call_id,
+        caller_phone_number=call.caller_phone_number if call else None,
+        customer_id=call.customer_id if call else None,
+        customer_name=_extract_customer_name(cust),
+        status=conv.status,
+        turn_count=conv.turn_count,
+        summary=conv.summary,
+        started_at=call.started_at if call else conv.created_at,
+        taken_over_by_employee_id=call.taken_over_by_employee_id if call else None,
+        taken_over_by_name=None,
+        notes=call.notes if call else None,
+        outcome=call.outcome if call else None,
+        created_at=conv.created_at,
+    )
+
+
+@router.post(
+    "/{conversation_id}/takeover",
+    response_model=HandoffItemResponse,
+    summary="Take over a handed-off conversation session as staff",
+)
+async def takeover_conversation(
+    conversation_id: UUID,
+    payload: Optional[HandoffTakeoverRequest] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> HandoffItemResponse:
+    """Assigns the handed-off conversation/call to an employee and updates status."""
+    org_id = TenantContext.get_current_tenant_id()
+
+    conv_query = (
+        select(Conversation, Call, Customer)
+        .outerjoin(Call, Conversation.call_id == Call.id)
+        .outerjoin(Customer, Call.customer_id == Customer.id)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.org_id == org_id,
+        )
+    )
+    res = await db.execute(conv_query)
+    row = res.first()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversation '{conversation_id}' was not found.",
+        )
+    conv, call, cust = row
+
+    # Resolve Employee
+    target_emp_id = payload.employee_id if payload and payload.employee_id else None
+    if not target_emp_id:
+        emp_query = select(Employee).where(Employee.user_id == current_user.id, Employee.org_id == org_id)
+        emp_res = await db.execute(emp_query)
+        emp = emp_res.scalar_one_or_none()
+        if emp:
+            target_emp_id = emp.id
+        else:
+            first_emp_query = select(Employee).where(Employee.org_id == org_id).limit(1)
+            first_emp_res = await db.execute(first_emp_query)
+            first_emp = first_emp_res.scalar_one_or_none()
+            if first_emp:
+                target_emp_id = first_emp.id
+
+    takeover_notes = payload.notes if payload and payload.notes else f"Taken over by {current_user.full_name or current_user.email}."
+    if call:
+        call.taken_over_by_employee_id = target_emp_id
+        call.status = "in_progress"
+        call.notes = f"{call.notes}\n[Takeover]: {takeover_notes}" if call.notes else f"[Takeover]: {takeover_notes}"
+
+    conv.summary = f"{conv.summary or ''}\n[Human Takeover by {current_user.email}]".strip()
+    await db.commit()
+    await db.refresh(conv)
+    if call:
+        await db.refresh(call)
+
+    return HandoffItemResponse(
+        conversation_id=conv.id,
+        call_id=conv.call_id,
+        caller_phone_number=call.caller_phone_number if call else None,
+        customer_id=call.customer_id if call else None,
+        customer_name=_extract_customer_name(cust),
+        status=call.status if call else conv.status,
+        turn_count=conv.turn_count,
+        summary=conv.summary,
+        started_at=call.started_at if call else conv.created_at,
+        taken_over_by_employee_id=call.taken_over_by_employee_id if call else None,
+        taken_over_by_name=current_user.full_name or current_user.email,
+        notes=call.notes if call else None,
+        outcome=call.outcome if call else None,
+        created_at=conv.created_at,
+    )
 
 
 @router.get(

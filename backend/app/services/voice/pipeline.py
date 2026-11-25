@@ -158,6 +158,7 @@ class VoicePipeline:
                     user_message_text=user_transcript,
                     provider=self.llm_provider,
                     user_id=self.user_id,
+                    enable_ai_fallback=True,
                 )
 
             if not turn_response or not turn_response.assistant_reply or not turn_response.assistant_reply.content:
@@ -170,6 +171,14 @@ class VoicePipeline:
 
             full_ai_text = turn_response.assistant_reply.content
             logger.info("AI generated response: '%s'", full_ai_text)
+
+            # Signal handoff status event to client if conversation was handed off
+            if turn_response.conversation_status == "handed_off":
+                await self.send_json({
+                    "type": "handoff_status",
+                    "status": "handed_off",
+                    "message": full_ai_text,
+                })
 
             # 3. Sentence-level streaming TTS
             aggregator = SentenceAggregator()

@@ -128,6 +128,7 @@
     <button class="nav-item" onclick="showSection('customers')"><span class="icon">🧑‍💼</span>Customers</button>
     <button class="nav-item" onclick="showSection('inquiries')"><span class="icon">📋</span>Inquiries</button>
     <button class="nav-item" onclick="showSection('leads')"><span class="icon">🎯</span>Leads & Pipeline</button>
+    <button class="nav-item" onclick="showSection('handoffs')"><span class="icon">🚨</span>Handoffs <span id="handoffBadge" style="display:none;background:var(--danger);color:#fff;border-radius:10px;padding:2px 7px;font-size:0.7rem;margin-left:auto;">0</span></button>
   </nav>
   <div class="sidebar-footer">
     <div class="user-info" id="userInfo">Loading…</div>
@@ -266,6 +267,35 @@
       </div>
     </section>
 
+    <!-- Handoffs & Escalation Queue -->
+    <section id="sec-handoffs" class="section">
+      <div class="card">
+        <div class="card-header">
+          <h3>🚨 Live Human Handoff Queue</h3>
+          <button class="btn btn-secondary btn-sm" onclick="loadHandoffs()">🔄 Refresh</button>
+        </div>
+        <div style="padding: 1rem 1.5rem; background: var(--lavender); border-bottom: 1px solid var(--border-light); font-size: 0.85rem; color: var(--text-secondary);">
+          Calls and sessions where customers requested a human representative or the AI triggered an escalation. Staff can take over calls in real time or view contact details to follow up.
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Caller Phone</th>
+              <th>Customer</th>
+              <th>Reason & Escalation Notes</th>
+              <th>Turns</th>
+              <th>Status</th>
+              <th>Time</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="handoffsTable">
+            <tr><td colspan="7" class="empty-state">Loading handoff queue…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
   </div>
 </main>
 
@@ -368,7 +398,7 @@
 <script>
 requireAuth();
 
-const NAV_SECTIONS = ['dashboard','calendar','live-calls','customers','inquiries','leads'];
+const NAV_SECTIONS = ['dashboard','calendar','live-calls','customers','inquiries','leads','handoffs'];
 
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -377,13 +407,14 @@ function showSection(name) {
   const idx = NAV_SECTIONS.indexOf(name);
   if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.getElementById('pageTitle').textContent = {
-    'dashboard':'Dashboard','calendar':'Calendar & Appointments','live-calls':'Live Console','customers':'Customers','inquiries':'Inquiries','leads':'Leads & Pipeline'
+    'dashboard':'Dashboard','calendar':'Calendar & Appointments','live-calls':'Live Console','customers':'Customers','inquiries':'Inquiries','leads':'Leads & Pipeline','handoffs':'Live Handoff Queue & Escalations'
   }[name] || name;
   if (name === 'dashboard') loadDashboard();
   else if (name === 'calendar') loadAppointments();
   else if (name === 'customers') loadCustomers();
   else if (name === 'inquiries') loadInquiries();
   else if (name === 'leads') loadLeads();
+  else if (name === 'handoffs') loadHandoffs();
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -391,15 +422,29 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 
 // Dashboard
 async function loadDashboard() {
-  const res = await apiFetch('/dashboard/receptionist');
+  const [res, handoffsRes] = await Promise.all([
+    apiFetch('/dashboard/receptionist'),
+    apiFetch('/conversations/handoffs?include_taken_over=false')
+  ]);
   if (!res || !res.ok) return;
   const d = await res.json();
+  let pendingHandoffs = 0;
+  if (handoffsRes && handoffsRes.ok) {
+    const hData = await handoffsRes.json();
+    pendingHandoffs = hData.length;
+  }
+  const badge = document.getElementById('handoffBadge');
+  if (badge) {
+    badge.textContent = pendingHandoffs;
+    badge.style.display = pendingHandoffs > 0 ? 'inline-block' : 'none';
+  }
   document.getElementById('statGrid').innerHTML = `
     <div class="stat-card"><div class="stat-label">Calls Today</div><div class="stat-value">${d.calls_today}</div></div>
     <div class="stat-card"><div class="stat-label">Calls This Week</div><div class="stat-value">${d.calls_this_week}</div></div>
     <div class="stat-card"><div class="stat-label">New Callers Today</div><div class="stat-value">${d.new_customers_today}</div></div>
     <div class="stat-card"><div class="stat-label">Open Inquiries</div><div class="stat-value">${d.open_inquiries}</div></div>
     <div class="stat-card"><div class="stat-label">New Leads Today</div><div class="stat-value">${d.new_leads_today}</div></div>
+    <div class="stat-card" style="border-left: 4px solid var(--danger);"><div class="stat-label" style="color:var(--danger)">Pending Handoffs</div><div class="stat-value" style="color:var(--danger)">${pendingHandoffs}</div></div>
   `;
   const tbody = document.getElementById('recentCallsTable');
   if (!d.recent_calls || !d.recent_calls.length) {
@@ -810,6 +855,48 @@ async function confirmLeadAssignment() {
     loadLeads();
   } else {
     showToast('Assignment requires admin role', 'error');
+  }
+}
+
+// Handoff Queue & Live Escalations
+async function loadHandoffs() {
+  const res = await apiFetch('/conversations/handoffs?include_taken_over=true&limit=50');
+  if (!res || !res.ok) return;
+  const items = await res.json();
+  const tbody = document.getElementById('handoffsTable');
+  if (!items || !items.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No pending handoffs. AI receptionist is handling all calls cleanly.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(h => {
+    const isTakenOver = !!h.taken_over_by_employee_id;
+    return `
+      <tr>
+        <td><b>${escapeHtml(h.caller_phone_number || 'Web Client')}</b></td>
+        <td>${escapeHtml(h.customer_name || 'Prospect')}</td>
+        <td><div style="max-width:320px;word-break:break-word;">${escapeHtml(h.notes || h.summary || 'Escalated to human representative')}</div></td>
+        <td><span style="font-weight:600;">${h.turn_count}</span> turns</td>
+        <td>${isTakenOver ? '<span style="background:#DCFCE7;color:#166534;padding:3px 8px;border-radius:12px;font-size:0.75rem;font-weight:600;">Taken Over</span>' : '<span style="background:#FEE2E2;color:#991B1B;padding:3px 8px;border-radius:12px;font-size:0.75rem;font-weight:600;">Needs Human</span>'}</td>
+        <td><small style="color:var(--text-muted)">${formatDate(h.started_at || h.created_at)}</small></td>
+        <td>
+          ${!isTakenOver ? `<button class="btn btn-sm btn-primary" onclick="takeoverHandoff('${h.conversation_id}')">Take Over Call</button>` : `<span style="font-size:0.8rem;color:var(--text-secondary)">By ${escapeHtml(h.taken_over_by_name || 'Staff')}</span>`}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function takeoverHandoff(convId) {
+  const res = await apiFetch(`/conversations/${convId}/takeover`, {
+    method: 'POST',
+    body: JSON.stringify({ notes: 'Taken over directly from Receptionist Workspace queue' })
+  });
+  if (res && res.ok) {
+    showToast('Call taken over successfully! You are now assigned.');
+    loadHandoffs();
+    loadDashboard();
+  } else {
+    showToast('Failed to take over call', 'error');
   }
 }
 

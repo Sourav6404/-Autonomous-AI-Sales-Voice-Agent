@@ -18,6 +18,7 @@ import backend.app.ai.tools.appointment_tools  # Register appointment tools
 from backend.app.ai.tools.registry import ToolExecutionContext
 from backend.app.core.config import settings
 from backend.app.core.exceptions import AppException
+from backend.app.models.call import Call
 from backend.app.models.conversation import Conversation
 from backend.app.models.message import Message
 from backend.app.schemas.conversation import (
@@ -43,6 +44,7 @@ class ConversationOrchestrator:
         user_message_text: str,
         provider: Optional[BaseLLMProvider] = None,
         user_id: Optional[UUID] = None,
+        enable_ai_fallback: bool = False,
     ) -> OrchestrationTurnResponse:
         """Processes a customer message turn through context loading, LLM inference, tools, and DB persistence."""
         start_time = time.time()
@@ -195,8 +197,83 @@ class ConversationOrchestrator:
                 extracted_intelligence=extracted,
                 conversation_status=conversation.status,
             )
-        except Exception:
+        except AppException:
             await db.rollback()
+            raise
+        except Exception as exc:
+            if not enable_ai_fallback:
+                await db.rollback()
+                raise
+
+            logger.warning(
+                "AI generation failed for conversation %s: %s. Initiating graceful AI fallback.",
+                conversation_id, exc
+            )
+            try:
+                await db.rollback()
+                conv_query = select(Conversation).where(
+                    Conversation.id == conversation_id,
+                    Conversation.org_id == org_id,
+                )
+                conv_res = await db.execute(conv_query)
+                conv = conv_res.scalar_one_or_none()
+                if conv:
+                    turn_num = conv.turn_count + 1
+                    cust_msg = Message(
+                        conversation_id=conv.id,
+                        turn_number=turn_num,
+                        speaker_role="caller",
+                        content=user_message_text,
+                    )
+                    db.add(cust_msg)
+
+                    fallback_text = (
+                        "I apologize, but I am currently experiencing technical difficulties retrieving that information. "
+                        "I have escalated this conversation to our support team, and a representative will follow up with you promptly."
+                    )
+                    asst_turn_num = turn_num + 1
+                    asst_msg = Message(
+                        conversation_id=conv.id,
+                        turn_number=asst_turn_num,
+                        speaker_role="ai_agent",
+                        content=fallback_text,
+                        latency_ms=0,
+                    )
+                    db.add(asst_msg)
+                    conv.turn_count = asst_turn_num
+                    conv.status = "handed_off"
+
+                    if conv.call_id:
+                        call_res = await db.execute(select(Call).where(Call.id == conv.call_id, Call.org_id == org_id))
+                        call = call_res.scalar_one_or_none()
+                        if call:
+                            call.status = "handed_off"
+                            call.outcome = "ai_fallback_handoff"
+                            call.notes = f"AI fallback triggered: {str(exc)[:150]}"
+
+                    await db.commit()
+                    await db.refresh(cust_msg)
+                    await db.refresh(asst_msg)
+                    await db.refresh(conv)
+
+                    return OrchestrationTurnResponse(
+                        conversation_id=conv.id,
+                        turn_number=asst_turn_num,
+                        customer_message=MessageResponse.model_validate(cust_msg),
+                        assistant_reply=MessageResponse.model_validate(asst_msg),
+                        tool_calls_executed=[],
+                        extracted_intelligence=CustomerIntentExtraction(
+                            primary_intent="support",
+                            urgency="high",
+                            sentiment="neutral",
+                            needs_human_intervention=True,
+                            confidence_score=0.5,
+                        ),
+                        conversation_status="handed_off",
+                    )
+            except Exception as fallback_err:
+                logger.error("Fallback handler failed: %s", fallback_err)
+                await db.rollback()
             raise
 
     @classmethod
@@ -225,7 +302,14 @@ class ConversationOrchestrator:
         elif any(w in lower for w in ["angry", "bad", "terrible", "ridiculous", "frustrated", "hate"]):
             sentiment = "negative"
 
-        needs_handoff = any(w in lower for w in ["human", "person", "representative", "agent", "supervisor"])
+        handoff_keywords = [
+            "human", "person", "representative", "agent", "supervisor",
+            "operator", "talk to someone", "speak to someone", "real person",
+            "sales rep", "transfer me", "connect me", "live person",
+            "speak to human", "speak to person", "connect to sales",
+            "transfer call", "human assistance", "manager"
+        ]
+        needs_handoff = any(w in lower for w in handoff_keywords)
 
         return CustomerIntentExtraction(
             primary_intent=intent,

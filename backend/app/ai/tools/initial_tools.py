@@ -28,9 +28,12 @@ from backend.app.ai.tools.schemas import (
 )
 from backend.app.models.business_hours import BusinessHours
 from backend.app.models.business_settings import BusinessSettings
+from backend.app.models.call import Call
 from backend.app.models.catalog import ProductService
 from backend.app.models.conversation import Conversation
 from backend.app.models.faq import FAQ
+from backend.app.models.inquiry import Inquiry
+from backend.app.models.lead import Lead
 from backend.app.models.organization import Organization
 from backend.app.models.policy import BusinessPolicy
 from backend.app.services.availability_service import AvailabilityService
@@ -151,7 +154,7 @@ async def request_human_handoff(
     args: RequestHumanHandoffInput,
     context: ToolExecutionContext,
 ) -> HumanHandoffOutput:
-    """Signals handoff on conversation session without destructive database writes."""
+    """Signals handoff on conversation session, updates call & CRM records, and queues escalation."""
     conv_res = await context.db.execute(
         select(Conversation).where(
             Conversation.id == context.conversation_id,
@@ -159,13 +162,62 @@ async def request_human_handoff(
         )
     )
     conv = conv_res.scalar_one_or_none()
+    ticket_id = f"ESC-{str(context.conversation_id)[:8].upper()}"
+
     if conv:
         conv.status = "handed_off"
 
-    ticket_id = f"ESC-{str(context.conversation_id)[:8].upper()}"
+        # Update Call record if linked
+        if conv.call_id:
+            call_res = await context.db.execute(
+                select(Call).where(Call.id == conv.call_id, Call.org_id == context.org_id)
+            )
+            call = call_res.scalar_one_or_none()
+            if call:
+                call.status = "handed_off"
+                call.outcome = "handed_off"
+                notes_item = f"Human handoff requested. Reason: {args.reason}. Urgency: {args.urgency}."
+                if args.customer_callback_phone:
+                    notes_item += f" Callback: {args.customer_callback_phone}."
+                call.notes = f"{call.notes}\n{notes_item}" if call.notes else notes_item
+
+                # Ensure customer inquiry is created for CRM visibility
+                if call.customer_id:
+                    inq_res = await context.db.execute(
+                        select(Inquiry).where(
+                            Inquiry.originating_call_id == call.id,
+                            Inquiry.org_id == context.org_id,
+                        )
+                    )
+                    existing_inq = inq_res.scalar_one_or_none()
+                    priority_map = {"low": "low", "medium": "medium", "high": "high", "critical": "urgent", "urgent": "urgent"}
+                    priority_val = priority_map.get(args.urgency, "medium")
+                    if not existing_inq:
+                        new_inq = Inquiry(
+                            org_id=context.org_id,
+                            customer_id=call.customer_id,
+                            originating_call_id=call.id,
+                            subject=f"Handoff escalation: {args.reason[:150]}",
+                            description=f"Urgency: {args.urgency}\nReason: {args.reason}\nCallback: {args.customer_callback_phone or call.caller_phone_number}\nTicket: {ticket_id}",
+                            status="open",
+                            priority=priority_val,
+                        )
+                        context.db.add(new_inq)
+
+                # Update any existing Lead
+                lead_res = await context.db.execute(
+                    select(Lead).where(Lead.originating_call_id == call.id, Lead.org_id == context.org_id)
+                )
+                existing_lead = lead_res.scalar_one_or_none()
+                if existing_lead:
+                    existing_lead.notes = f"{existing_lead.notes or ''}\n[Escalated to human]: {args.reason} (Urgency: {args.urgency})".strip()
+                    if args.urgency in ("high", "critical"):
+                        existing_lead.priority = "high"
+                        existing_lead.qualification_tier = "hot"
+
     return HumanHandoffOutput(
         handoff_status="queued",
-        message="Your request has been escalated to a live representative. A team member has been notified.",
+        message="I have escalated your call to our human representative team. A specialist has been notified and will take over or follow up with you directly.",
         ticket_reference=ticket_id,
     )
 
