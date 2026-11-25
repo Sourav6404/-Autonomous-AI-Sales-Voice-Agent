@@ -237,7 +237,98 @@ The call gateway provides a full-duplex WebSocket connection between the telepho
 
 ---
 
-## 5. Staff Live Monitor & Human Takeover WebSocket Protocol
+## 5. Conversation Intelligence & Dialogue Session Endpoints (Stage 3)
+
+### 5.1 Create Conversation Session
+- `POST /v1/conversations` (or `/api/v1/conversations`)
+  - **Headers**: `Authorization: Bearer <token>`
+  - **Body**:
+    ```json
+    {
+      "customer_phone": "+15551234567",
+      "customer_name": "Jane Doe",
+      "call_id": null,
+      "language": "en"
+    }
+    ```
+  - **Response (201 Created)**:
+    ```json
+    {
+      "id": "e305d218-02ce-4e58-963d-4c38d2a6a58b",
+      "org_id": "78b4081c-99d9-48f3-8b7c-c46b5a265691",
+      "call_id": "a98818f1-4db5-42cf-9626-d621fc426fa1",
+      "status": "active",
+      "language": "en",
+      "turn_count": 0,
+      "summary": null,
+      "created_at": "2026-11-25T23:50:00Z"
+    }
+    ```
+
+### 5.2 Get Conversation Session
+- `GET /v1/conversations/{conversation_id}`
+  - **Headers**: `Authorization: Bearer <token>`
+  - **Response (200 OK)**: Returns conversation session details scoped strictly to authenticated tenant.
+
+### 5.3 Submit User Message & Execute Orchestration Turn
+- `POST /v1/conversations/{conversation_id}/messages`
+  - **Headers**: `Authorization: Bearer <token>`
+  - **Body**:
+    ```json
+    {
+      "content": "Hi, what time are you open on Mondays?"
+    }
+    ```
+  - **Response (200 OK)**:
+    ```json
+    {
+      "user_message": {
+        "id": "4b68e982-b7e1-4c7b-b3c9-04a88f7293a1",
+        "conversation_id": "e305d218-02ce-4e58-963d-4c38d2a6a58b",
+        "turn_number": 1,
+        "speaker_role": "caller",
+        "content": "Hi, what time are you open on Mondays?",
+        "created_at": "2026-11-25T23:50:05Z"
+      },
+      "agent_message": {
+        "id": "6a90802c-5692-411a-bc07-bc7e2d9361a4",
+        "conversation_id": "e305d218-02ce-4e58-963d-4c38d2a6a58b",
+        "turn_number": 2,
+        "speaker_role": "ai_agent",
+        "content": "We are open from 8:30 AM to 5:30 PM on Mondays. How can I assist you further?",
+        "created_at": "2026-11-25T23:50:07Z"
+      },
+      "extracted_intent": {
+        "customer_intent": "General inquiry regarding Monday operating schedule",
+        "intent_category": "inquiry",
+        "urgency": "low",
+        "sentiment": "neutral",
+        "handoff_recommended": false
+      },
+      "tools_executed": [
+        {
+          "tool": "get_business_hours",
+          "arguments": { "day_of_week": 1 },
+          "result": { "schedules": [{ "day": "Monday", "open_time": "08:30:00", "close_time": "17:30:00", "is_closed": false }] }
+        }
+      ],
+      "turn_count": 2
+    }
+    ```
+
+### 5.4 Retrieve Conversation Message History
+- `GET /v1/conversations/{conversation_id}/messages`
+  - **Headers**: `Authorization: Bearer <token>`
+  - **Response (200 OK)**: List of all message turns ordered by `turn_number ASC`.
+
+### 5.5 End Conversation Session
+- `POST /v1/conversations/{conversation_id}/end`
+  - **Headers**: `Authorization: Bearer <token>`
+  - **Response (200 OK)**: Updates status to `completed` and computes call duration if applicable.
+
+---
+
+## 6. Staff Live Monitor & Human Takeover WebSocket Protocol
 
 Staff receptionists connect to this channel to observe live calls in real time and execute instantaneous takeovers.
 

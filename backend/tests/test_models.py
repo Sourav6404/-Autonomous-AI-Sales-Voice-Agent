@@ -78,7 +78,7 @@ async def test_call_conversation_and_messages(db_session: AsyncSession):
     db_session.add(call)
     await db_session.commit()
 
-    conv = Conversation(call_id=call.id, language="en")
+    conv = Conversation(org_id=org.id, call_id=call.id, language="en")
     db_session.add(conv)
     await db_session.commit()
 

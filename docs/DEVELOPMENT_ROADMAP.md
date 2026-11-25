@@ -46,37 +46,34 @@ flowchart LR
 
 ---
 
-## Stage 2: Authentication, Tenant Isolation & User Management REST APIs
-- **Objective**: Implement secure multi-tenant authentication, JWT issuance, password hashing, and role-based access control middleware.
-- **Scope**:
-  - Password hashing with `bcrypt` / `argon2`.
-  - JWT token generation (access + refresh token rotation in Redis).
-  - FastAPI dependency injection for `get_current_user`, `require_role(role)`.
-  - CRUD REST endpoints for `/auth`, `/users`, `/departments`, `/employees`.
-- **Files Expected**:
-  - `backend/app/core/security.py`, `backend/app/api/deps.py`
-  - `backend/app/schemas/auth.py`, `backend/app/schemas/user.py`
-  - `backend/app/api/v1/auth.py`, `backend/app/api/v1/users.py`, `backend/app/api/v1/departments.py`
-- **Testing Strategy**: Unit tests for password hashing; integration tests verifying RBAC permissions (e.g., Sales Employee cannot delete departments).
-- **Acceptance Criteria**: Staff can login, receive JWT, and access tenant-isolated resources; unauthorized requests receive 401/403.
-- **Risks & Mitigation**: Tenant leakage $\to$ Unit tests assert that queries from Tenant A cannot retrieve records from Tenant B.
+## Stage 2: Authentication, Tenant Isolation & Business Availability Configuration
+- **Objective**: Implement secure multi-tenant authentication, JWT issuance, password hashing, role-based access control middleware, and business availability engine.
+- **Scope Delivered**:
+  - Scrypt password hashing with unique salts.
+  - JWT access and refresh token lifecycle, token blacklist, single-use refresh token rotation.
+  - Role-based access control (`owner`, `admin`, `receptionist`, `employee`).
+  - Business hours CRUD, holiday calendar, special dates, AI availability controls, and `AvailabilityService` priority evaluation engine.
+- **Status**: Completed (Audited and tested with 53 passing tests).
 
 ---
 
-## Stage 3: Business Availability, Operating Hours & Schedule Engine
-- **Objective**: Build the business logic engine responsible for determining if the business or department is currently open, on holiday, or offline.
-- **Scope**:
-  - Business hours CRUD (split shifts, weekday schedules).
-  - Holiday calendar and special dates management.
-  - AI Availability master switch (online/offline/emergency closure).
-  - Core evaluation service: `AvailabilityService.is_business_open(org_id, timestamp, department_id)`.
-- **Files Expected**:
-  - `backend/app/services/availability_service.py`
-  - `backend/app/schemas/business_hours.py`, `backend/app/schemas/holidays.py`
-  - `backend/app/api/v1/business_hours.py`, `backend/app/api/v1/holidays.py`, `backend/app/api/v1/ai_availability.py`
-- **Testing Strategy**: Comprehensive parameter-driven unit tests testing various timezones, leap years, statutory holidays, weekend shifts, and emergency overrides.
-- **Acceptance Criteria**: Evaluator accurately reports open/closed/holiday status for any arbitrary datetime across all configured time zones.
-- **Risks & Mitigation**: Timezone discrepancies $\to$ Store all operational records in UTC with IANA timezone strings (`org.default_timezone`).
+## Stage 3: AI Conversation Engine & Dialogue Management
+- **Objective**: Establish provider-independent conversational intelligence layer capable of dynamic context assembly, tool execution, session state management, and intent extraction.
+- **Scope Delivered**:
+  - Provider-agnostic LLM interface (`BaseLLMProvider`) supporting OpenAI and Google Gemini via async REST.
+  - Secure backend-controlled Tool Registry (`ToolRegistry`) with argument validation, authorization, and tenant isolation.
+  - Multi-turn conversation orchestrator (`ConversationOrchestrator`) coordinating prompts, context loading, tool execution loops, DB persistence, and intent extraction.
+  - Progressive memory and context pruning (`ContextManager`) with sliding history windows and token bounding.
+  - Dynamic prompt management (`PromptManager`) injecting tenant settings, hours, and anti-hallucination boundaries.
+  - Conversation REST APIs (`POST /conversations`, `POST /conversations/{id}/messages`, `POST /conversations/{id}/end`).
+- **Files Delivered**:
+  - `backend/app/ai/providers/` (`base.py`, `openai_provider.py`, `gemini_provider.py`, `factory.py`)
+  - `backend/app/ai/tools/` (`schemas.py`, `registry.py`, `initial_tools.py`)
+  - `backend/app/ai/conversation/` (`context_manager.py`, `prompt_manager.py`, `orchestrator.py`)
+  - `backend/app/api/v1/conversations.py`, `backend/app/schemas/conversation.py`
+  - `backend/alembic/versions/0003_stage3_conversation_engine.py`
+  - `backend/tests/test_stage3_*.py` (14 comprehensive automated tests)
+- **Status**: Completed (All 67 regression and Stage 3 tests passing against PostgreSQL 16).
 
 ---
 

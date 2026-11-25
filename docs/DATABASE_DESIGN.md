@@ -227,9 +227,12 @@ Individual call sessions.
 - `created_at`: `TIMESTAMPTZ` NOT NULL DEFAULT clock_timestamp()
 
 #### `conversations`
-The dialog session associated with a call.
+The dialog session associated with a call or interactive text interaction.
 - `id`: `UUID` (PK, default `gen_random_uuid()`)
-- `call_id`: `UUID` NOT NULL UNIQUE (FK `calls.id` ON DELETE CASCADE)
+- `org_id`: `UUID` NOT NULL (FK `organizations.id` ON DELETE CASCADE)
+- `call_id`: `UUID` NULL UNIQUE (FK `calls.id` ON DELETE CASCADE)
+- `status`: `VARCHAR(50)` NOT NULL DEFAULT 'active' (CHECK in `active`, `completed`, `handed_off`, `abandoned`)
+- `summary`: `TEXT` NULL (Progressive dialogue summary across turns)
 - `language`: `VARCHAR(10)` NOT NULL DEFAULT 'en'
 - `turn_count`: `INTEGER` NOT NULL DEFAULT 0
 - `created_at`: `TIMESTAMPTZ` NOT NULL DEFAULT clock_timestamp()

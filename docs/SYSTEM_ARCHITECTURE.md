@@ -144,6 +144,52 @@ sequenceDiagram
 
 ---
 
+### 3.2 AI Conversation Engine & Tool Registry Architecture (Stage 3)
+
+The AI conversation layer abstracts LLM interactions and orchestrates secure, context-aware dialogue:
+
+```mermaid
+flowchart TD
+    Client["Client / Telephony Gateway"] --> Orch["ConversationOrchestrator"]
+    Orch --> PM["PromptManager (Tenant Profile, Hours, Guardrails)"]
+    Orch --> CM["ContextManager (Sliding Window, Token Pruning, Summarization)"]
+    Orch --> Factory["LLM Provider Factory"]
+    Factory --> LLM["BaseLLMProvider (OpenAI / Google Gemini via Async REST)"]
+    LLM -- Function Call --> TR["ToolRegistry (Policy, Timeout, Tenant Check)"]
+    TR --> Tools["Initial Demonstrable Tools (Business Info, Hours, Availability, Handoff)"]
+    Tools --> TR
+    TR --> LLM
+    LLM -- Text Output --> Orch
+    Orch --> Extractor["Structured Intent Extractor"]
+    Orch --> DB[(PostgreSQL 16: Conversations, Messages, Calls)]
+```
+
+#### Key Architecture Components:
+1. **Provider Abstraction Layer (`backend/app/ai/providers/`)**:
+   - `BaseLLMProvider`: Defines common interface `generate_response()` and `stream_response()` accepting typed `ChatMessage` and `ToolDefinition`.
+   - Standardized `LLMResponse` encapsulating generated text, tool calls, and usage metrics.
+   - Decoupled REST implementations for OpenAI (`OpenAIProvider`) and Google Gemini (`GeminiProvider`) using `httpx.AsyncClient` with zero SDK dependency conflicts.
+   - Centralized `get_ai_provider()` factory dynamically resolving providers from tenant and system configuration.
+
+2. **Secure Backend-Controlled Tool Registry (`backend/app/ai/tools/`)**:
+   - `ToolRegistry` enforces schema validation using Pydantic, execution timeouts, and tenant boundary verification.
+   - `ToolExecutionContext` delivers authenticated `org_id`, `conversation_id`, and `db` session directly to tools. The model cannot bypass tenant boundaries or forge tenant IDs.
+   - Safe initial demonstrable tools: `get_business_information`, `get_business_hours`, `get_ai_availability`, `request_human_handoff`.
+
+3. **Multi-Turn Dialogue Orchestration (`backend/app/ai/conversation/orchestrator.py`)**:
+   - Validates session state, ensuring closed (`completed`, `abandoned`) conversations reject new messages.
+   - Loads bounded dialogue history and progressive summary via `ContextManager`.
+   - Injects dynamic business-aware system prompts via `PromptManager`.
+   - Manages tool call loop (max 5 tool turns per step) with automated error reporting back to the LLM.
+   - Persists all caller and agent turns atomically to PostgreSQL.
+   - Performs structured intent, category, sentiment, and urgency extraction.
+
+4. **Progressive Summarization & Memory Management (`backend/app/ai/conversation/context_manager.py`)**:
+   - Sliding history window restricted to the most recent `CONVERSATION_HISTORY_LIMIT` (default 10) messages.
+   - Summarization triggers when history length exceeds `CONVERSATION_SUMMARY_THRESHOLD` (default 8) turns, maintaining long-running dialogue continuity without exceeding context limits.
+
+---
+
 ## 4. Concurrent Call Processing & Session Isolation
 
 To guarantee that multiple simultaneous calls never leak state, cross-talk, or monopolize system threads:

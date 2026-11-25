@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     LOG_FORMAT: Literal["json", "text"] = "json"
 
+    # AI & LLM Provider Configuration
+    DEFAULT_AI_PROVIDER: Literal["openai", "gemini"] = "openai"
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+    AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
+    AI_MAX_RETRIES: int = 2
+    CONVERSATION_HISTORY_LIMIT: int = 15
+    CONVERSATION_SUMMARY_THRESHOLD: int = 20
+
     @property
     def async_database_url(self) -> str:
         """Returns the asynchronous PostgreSQL connection URL."""
