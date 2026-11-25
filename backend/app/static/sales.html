@@ -41,31 +41,13 @@
     padding: 0 1.5rem 1.25rem;
     border-bottom: 1px solid var(--border-light);
   }
-  .sidebar-logo h2 {
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: var(--primary);
-  }
-  .sidebar-logo p {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-top: 3px;
-  }
+  .sidebar-logo h2 { font-size: 1.15rem; font-weight: 700; color: var(--primary); }
+  .sidebar-logo p { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; }
   .nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
   .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1.5rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.15s;
-    font-size: 0.875rem;
-    font-weight: 500;
-    border: none;
-    background: none;
-    width: 100%;
-    text-align: left;
+    display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.5rem;
+    color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+    font-size: 0.875rem; font-weight: 500; border: none; background: none; width: 100%; text-align: left;
   }
   .nav-item:hover { background: var(--lavender); color: var(--primary-deep); }
   .nav-item.active { background: var(--nav-selected); color: var(--primary-deep); font-weight: 600; border-right: 3px solid var(--primary); }
@@ -121,6 +103,7 @@
     <button class="nav-item active" onclick="showSection('dashboard')"><span class="icon">📊</span>My Pipeline</button>
     <button class="nav-item" onclick="showSection('my-leads')"><span class="icon">🎯</span>My Assigned Leads</button>
     <button class="nav-item" onclick="showSection('my-clients')"><span class="icon">🧑‍💼</span>My Client Directory</button>
+    <button class="nav-item" onclick="showSection('my-calendar')"><span class="icon">📅</span>My Calendar (Read-Only)</button>
     <button class="nav-item" onclick="showSection('profile')"><span class="icon">⚙️</span>Profile & Status</button>
   </nav>
   <div class="sidebar-footer">
@@ -181,6 +164,20 @@
       </div>
     </section>
 
+    <!-- My Calendar Section (Strictly Read-Only) -->
+    <section id="sec-my-calendar" class="section">
+      <div class="card">
+        <div class="card-header">
+          <h3>Assigned Meetings & Discovery Calls</h3>
+          <span style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">READ-ONLY ACCESS</span>
+        </div>
+        <table>
+          <thead><tr><th>Meeting / Title</th><th>Customer / Client</th><th>Start Time</th><th>End Time</th><th>Status</th><th>Contact Phone</th></tr></thead>
+          <tbody id="myCalendarTable"><tr><td colspan="6" class="empty-state">Loading your schedule…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Profile Section -->
     <section id="sec-profile" class="section">
       <div class="card" style="padding: 2rem; max-width: 600px;">
@@ -230,7 +227,7 @@
 <script>
 requireAuth();
 
-const NAV_SECTIONS = ['dashboard','my-leads','my-clients','profile'];
+const NAV_SECTIONS = ['dashboard','my-leads','my-clients','my-calendar','profile'];
 
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -239,11 +236,12 @@ function showSection(name) {
   const idx = NAV_SECTIONS.indexOf(name);
   if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.getElementById('pageTitle').textContent = {
-    'dashboard':'My Pipeline','my-leads':'My Assigned Leads','my-clients':'My Client Directory','profile':'Profile & Status'
+    'dashboard':'My Pipeline','my-leads':'My Assigned Leads','my-clients':'My Client Directory','my-calendar':'My Calendar','profile':'Profile & Status'
   }[name] || name;
   if (name === 'dashboard') loadDashboard();
   else if (name === 'my-leads') loadMyLeads();
   else if (name === 'my-clients') loadMyClients();
+  else if (name === 'my-calendar') loadMyCalendar();
   else if (name === 'profile') loadProfile();
 }
 
@@ -327,6 +325,27 @@ async function loadMyClients() {
       <td>${escapeHtml(c.phone_number)}</td>
       <td>${escapeHtml(c.email || '—')}</td>
       <td>${escapeHtml(c.company_name || '—')}</td>
+    </tr>
+  `).join('');
+}
+
+async function loadMyCalendar() {
+  const res = await apiFetch('/appointments/my-calendar?page_size=50');
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  const tbody = document.getElementById('myCalendarTable');
+  if (!d.items || !d.items.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No scheduled meetings on your calendar</td></tr>';
+    return;
+  }
+  tbody.innerHTML = d.items.map(a => `
+    <tr>
+      <td><b>${escapeHtml(a.title || a.meeting_type)}</b><br><small style="color:var(--text-muted)">${escapeHtml(a.purpose || '')}</small></td>
+      <td>${escapeHtml(a.customer_name || a.customer_phone || '—')}</td>
+      <td>${formatDate(a.start_time)}</td>
+      <td>${formatTime(a.end_time)}</td>
+      <td>${statusBadge(a.status)}</td>
+      <td>${escapeHtml(a.customer_phone || a.meeting_link_or_phone || '—')}</td>
     </tr>
   `).join('');
 }

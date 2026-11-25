@@ -14,6 +14,7 @@ from backend.app.ai.conversation.prompt_manager import PromptManager
 from backend.app.ai.providers.base import BaseLLMProvider, ChatMessage, LLMResponse
 from backend.app.ai.providers.factory import get_ai_provider
 from backend.app.ai.tools.initial_tools import tool_registry
+import backend.app.ai.tools.appointment_tools  # Register appointment tools
 from backend.app.ai.tools.registry import ToolExecutionContext
 from backend.app.core.config import settings
 from backend.app.core.exceptions import AppException

@@ -3,13 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FortiSales AI — Receptionist Portal</title>
+<title>FortiSales AI — Receptionist Portal & Calendar</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --primary: #7C3AED;
     --primary-deep: #6D28D9;
     --primary-dark: #5B21B6;
+    --primary-light: #8B5CF6;
+    --soft-violet: #A78BFA;
     --bg-main: #FFFFFF;
     --bg-workspace: #F8F7FC;
     --lavender: #F5F3FF;
@@ -19,6 +21,7 @@
     --text-primary: #27213A;
     --text-secondary: #6B6478;
     --text-muted: #91899E;
+    --danger: #DC2626;
   }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -41,31 +44,13 @@
     padding: 0 1.5rem 1.25rem;
     border-bottom: 1px solid var(--border-light);
   }
-  .sidebar-logo h2 {
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: var(--primary);
-  }
-  .sidebar-logo p {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-top: 3px;
-  }
+  .sidebar-logo h2 { font-size: 1.15rem; font-weight: 700; color: var(--primary); }
+  .sidebar-logo p { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; }
   .nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
   .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1.5rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.15s;
-    font-size: 0.875rem;
-    font-weight: 500;
-    border: none;
-    background: none;
-    width: 100%;
-    text-align: left;
+    display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.5rem;
+    color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+    font-size: 0.875rem; font-weight: 500; border: none; background: none; width: 100%; text-align: left;
   }
   .nav-item:hover { background: var(--lavender); color: var(--primary-deep); }
   .nav-item.active { background: var(--nav-selected); color: var(--primary-deep); font-weight: 600; border-right: 3px solid var(--primary); }
@@ -73,7 +58,7 @@
   .sidebar-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border-light); }
   .user-info { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem; word-break: break-all; }
   .btn-logout { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-secondary); padding: 0.45rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
-  .btn-logout:hover { border-color: #DC2626; color: #DC2626; }
+  .btn-logout:hover { border-color: var(--danger); color: var(--danger); }
   .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .topbar { background: var(--bg-main); border-bottom: 1px solid var(--border); padding: 1.1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
   .topbar h1 { font-size: 1.25rem; font-weight: 700; }
@@ -92,16 +77,34 @@
   td { padding: 0.9rem 1.25rem; border-top: 1px solid var(--border-light); }
   tr:hover td { background: var(--lavender); }
   .empty-state { text-align: center; padding: 3rem; color: var(--text-muted); }
-  .search-bar { display: flex; gap: 0.75rem; padding: 1rem 1.5rem 0.5rem; }
+  .search-bar { display: flex; gap: 0.75rem; padding: 1rem 1.5rem 0.5rem; flex-wrap: wrap; }
   .search-bar input, .search-bar select { padding: 0.6rem 1rem; background: var(--bg-main); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 0.875rem; }
-  .search-bar input { flex: 1; }
+  .search-bar input { flex: 1; min-width: 200px; }
   .btn { padding: 0.6rem 1.2rem; border-radius: 8px; border: none; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
   .btn-primary { background: var(--primary); color: #fff; }
   .btn-primary:hover { background: var(--primary-deep); }
   .btn-sm { padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+  .btn-secondary { background: var(--lavender); color: var(--primary); border: 1px solid var(--border); }
+  .btn-danger { background: #FEE2E2; color: var(--danger); border: 1px solid #FCA5A5; }
+  .btn-danger:hover { background: var(--danger); color: #FFFFFF; }
+  /* Calendar Styles */
+  .cal-controls { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+  .cal-view-toggle { display: flex; background: var(--border-light); border-radius: 8px; padding: 3px; }
+  .cal-view-btn { padding: 0.4rem 0.9rem; border: none; background: none; font-size: 0.8rem; font-weight: 600; cursor: pointer; border-radius: 6px; color: var(--text-secondary); }
+  .cal-view-btn.active { background: var(--bg-main); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .month-grid { display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-main); }
+  .day-header { padding: 0.75rem; text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); background: var(--bg-workspace); border-bottom: 1px solid var(--border); }
+  .day-cell { min-height: 100px; padding: 0.5rem; border-right: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light); cursor: pointer; transition: background 0.15s; }
+  .day-cell:nth-child(7n) { border-right: none; }
+  .day-cell:hover { background: var(--lavender); }
+  .day-cell.other-month { background: #FAFAFC; color: var(--text-muted); }
+  .day-num { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.35rem; }
+  .day-cell.today .day-num { display: inline-flex; width: 22px; height: 22px; background: var(--primary); color: #fff; border-radius: 50%; align-items: center; justify-content: center; }
+  .appt-pill { display: block; font-size: 0.7rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; margin-bottom: 2px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; background: var(--lavender); color: var(--primary-deep); border-left: 2px solid var(--primary); }
+  /* Modal */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(39, 33, 58, 0.4); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
   .modal-overlay.open { display: flex; }
-  .modal { background: var(--bg-main); border: 1px solid var(--border); border-radius: 14px; padding: 2rem; width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+  .modal { background: var(--bg-main); border: 1px solid var(--border); border-radius: 14px; padding: 2rem; width: 500px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
   .modal h3 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.5rem; }
   .form-group { margin-bottom: 1rem; }
   .form-group label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.4rem; }
@@ -120,6 +123,7 @@
   </div>
   <nav class="nav">
     <button class="nav-item active" onclick="showSection('dashboard')"><span class="icon">📊</span>Dashboard</button>
+    <button class="nav-item" onclick="showSection('calendar')"><span class="icon">📅</span>Calendar & Booking</button>
     <button class="nav-item" onclick="showSection('live-calls')"><span class="icon">📞</span>Live Console</button>
     <button class="nav-item" onclick="showSection('customers')"><span class="icon">🧑‍💼</span>Customers</button>
     <button class="nav-item" onclick="showSection('inquiries')"><span class="icon">📋</span>Inquiries</button>
@@ -137,6 +141,7 @@
   </div>
   <div class="content">
 
+    <!-- Dashboard -->
     <section id="sec-dashboard" class="section active">
       <div class="stat-grid" id="statGrid"><div class="stat-card"><div class="stat-label">Loading…</div></div></div>
       <div class="card">
@@ -148,16 +153,58 @@
       </div>
     </section>
 
+    <!-- Calendar & Appointments Section -->
+    <section id="sec-calendar" class="section">
+      <div class="cal-controls">
+        <button class="btn btn-primary" onclick="openBookModal()">+ Schedule Appointment</button>
+        <div class="cal-view-toggle">
+          <button class="cal-view-btn active" id="btnViewList" onclick="switchCalView('list')">List</button>
+          <button class="cal-view-btn" id="btnViewMonth" onclick="switchCalView('month')">Month</button>
+        </div>
+        <input type="date" id="calDateFilter" onchange="loadAppointments()" style="padding:0.4rem 0.8rem;border:1px solid var(--border);border-radius:8px;">
+        <select id="calStatusFilter" onchange="loadAppointments()" style="padding:0.4rem 0.8rem;border:1px solid var(--border);border-radius:8px;">
+          <option value="">All Statuses</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+
+      <!-- List View -->
+      <div id="calListView" class="card">
+        <div class="card-header"><h3>Appointments</h3></div>
+        <table>
+          <thead><tr><th>Meeting / Title</th><th>Customer</th><th>Staff Assigned</th><th>Start Time</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="apptTable"><tr><td colspan="6" class="empty-state">Loading appointments…</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- Month View -->
+      <div id="calMonthView" style="display:none;">
+        <div class="card-header" style="background:var(--bg-main);border-radius:12px 12px 0 0;padding:1rem 1.5rem;border:1px solid var(--border);border-bottom:none;display:flex;justify-content:space-between;align-items:center;">
+          <h3 id="monthTitle">December 2026</h3>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-secondary btn-sm" onclick="changeMonth(-1)">&larr; Prev</button>
+            <button class="btn btn-secondary btn-sm" onclick="changeMonth(1)">Next &rarr;</button>
+          </div>
+        </div>
+        <div class="month-grid" id="monthGrid"></div>
+      </div>
+    </section>
+
+    <!-- Live Calls -->
     <section id="sec-live-calls" class="section">
       <div class="card" style="padding: 3rem; text-align: center; max-width: 600px; margin: 0 auto;">
         <h3 style="margin-bottom: 0.75rem;">AI Receptionist Voice Console</h3>
         <p style="color: var(--text-secondary); margin-bottom: 1.75rem; font-size: 0.95rem;">
-          Open the real-time browser AudioWorklet console to monitor live conversations, view streaming transcriptions, or initiate calls.
+          Launch the real-time browser AudioWorklet console to test live phone conversations and monitor transcriptions.
         </p>
         <button class="btn btn-primary" onclick="window.open('/voice-console','_blank')">🎙️ Launch Voice Console</button>
       </div>
     </section>
 
+    <!-- Customers -->
     <section id="sec-customers" class="section">
       <div class="card">
         <div class="card-header">
@@ -174,6 +221,7 @@
       </div>
     </section>
 
+    <!-- Inquiries -->
     <section id="sec-inquiries" class="section">
       <div class="card">
         <div class="card-header">
@@ -195,10 +243,11 @@
       </div>
     </section>
 
+    <!-- Leads -->
     <section id="sec-leads" class="section">
       <div class="card">
         <div class="card-header">
-          <h3>Sales Leads & Inquiries</h3>
+          <h3>Sales Leads & Pipeline</h3>
           <button class="btn btn-primary btn-sm" onclick="openAssignLeadModal()">Assign to Sales</button>
         </div>
         <div class="search-bar">
@@ -219,6 +268,51 @@
 
   </div>
 </main>
+
+<!-- Book Appointment Modal -->
+<div class="modal-overlay" id="bookModal">
+  <div class="modal">
+    <h3>Schedule Appointment</h3>
+    <div class="form-group"><label>Customer Phone *</label><input type="text" id="bkPhone" placeholder="+1 555 000 0000"></div>
+    <div class="form-group"><label>Date *</label><input type="date" id="bkDate" onchange="queryAvailableSlots()"></div>
+    <div class="form-group"><label>Available Time Slot *</label><select id="bkSlot"><option value="">Select date first…</option></select></div>
+    <div class="form-group"><label>Staff Member</label><select id="bkStaff"></select></div>
+    <div class="form-group"><label>Meeting Type</label><input type="text" id="bkType" value="Sales Discovery Call"></div>
+    <div class="form-group"><label>Notes / Purpose</label><textarea id="bkNotes" rows="2"></textarea></div>
+    <div class="modal-footer">
+      <button class="link-btn" onclick="closeModal('bookModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmBooking()">Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reschedule Modal -->
+<div class="modal-overlay" id="reschedModal">
+  <div class="modal">
+    <h3>Reschedule Appointment</h3>
+    <input type="hidden" id="rsApptId">
+    <div class="form-group"><label>New Date *</label><input type="date" id="rsDate" onchange="queryReschedSlots()"></div>
+    <div class="form-group"><label>New Available Slot *</label><select id="rsSlot"><option value="">Select date first…</option></select></div>
+    <div class="form-group"><label>Reason for Rescheduling</label><input type="text" id="rsReason" placeholder="Customer requested afternoon"></div>
+    <div class="modal-footer">
+      <button class="link-btn" onclick="closeModal('reschedModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmReschedule()">Save Reschedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cancel Appointment Modal -->
+<div class="modal-overlay" id="cancelModal">
+  <div class="modal">
+    <h3>Cancel Appointment</h3>
+    <input type="hidden" id="cancelApptId">
+    <div class="form-group"><label>Cancellation Reason *</label><textarea id="cancelReason" rows="3" placeholder="Customer cancelled via phone"></textarea></div>
+    <div class="modal-footer">
+      <button class="link-btn" onclick="closeModal('cancelModal')">Close</button>
+      <button class="btn btn-danger" onclick="confirmCancellation()">Confirm Cancellation</button>
+    </div>
+  </div>
+</div>
 
 <!-- Add Customer Modal -->
 <div class="modal-overlay" id="addCustModal">
@@ -274,7 +368,7 @@
 <script>
 requireAuth();
 
-const NAV_SECTIONS = ['dashboard','live-calls','customers','inquiries','leads'];
+const NAV_SECTIONS = ['dashboard','calendar','live-calls','customers','inquiries','leads'];
 
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -283,9 +377,10 @@ function showSection(name) {
   const idx = NAV_SECTIONS.indexOf(name);
   if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.getElementById('pageTitle').textContent = {
-    'dashboard':'Dashboard','live-calls':'Live Console','customers':'Customers','inquiries':'Inquiries','leads':'Leads & Pipeline'
+    'dashboard':'Dashboard','calendar':'Calendar & Appointments','live-calls':'Live Console','customers':'Customers','inquiries':'Inquiries','leads':'Leads & Pipeline'
   }[name] || name;
   if (name === 'dashboard') loadDashboard();
+  else if (name === 'calendar') loadAppointments();
   else if (name === 'customers') loadCustomers();
   else if (name === 'inquiries') loadInquiries();
   else if (name === 'leads') loadLeads();
@@ -294,6 +389,7 @@ function showSection(name) {
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
+// Dashboard
 async function loadDashboard() {
   const res = await apiFetch('/dashboard/receptionist');
   if (!res || !res.ok) return;
@@ -320,6 +416,248 @@ async function loadDashboard() {
   `).join('');
 }
 
+// Calendar & Appointments
+let allAppts = [];
+let currentCalView = 'list';
+let currentMonth = new Date().getMonth();
+let currentYear = new Date().getFullYear();
+
+function switchCalView(v) {
+  currentCalView = v;
+  document.getElementById('btnViewList').classList.toggle('active', v === 'list');
+  document.getElementById('btnViewMonth').classList.toggle('active', v === 'month');
+  document.getElementById('calListView').style.display = v === 'list' ? 'block' : 'none';
+  document.getElementById('calMonthView').style.display = v === 'month' ? 'block' : 'none';
+  if (v === 'month') renderMonthGrid();
+}
+
+async function loadAppointments() {
+  let url = '/appointments?page_size=100';
+  const status = document.getElementById('calStatusFilter').value;
+  if (status) url += '&status=' + status;
+  const dateVal = document.getElementById('calDateFilter').value;
+  if (dateVal) {
+    url += '&date_from=' + new Date(dateVal + 'T00:00:00Z').toISOString();
+    url += '&date_to=' + new Date(dateVal + 'T23:59:59Z').toISOString();
+  }
+
+  const res = await apiFetch(url);
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  allAppts = d.items || [];
+
+  const tbody = document.getElementById('apptTable');
+  if (!allAppts.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No appointments found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = allAppts.map(a => `
+    <tr>
+      <td><b>${escapeHtml(a.title || a.meeting_type)}</b><br><small style="color:var(--text-muted)">${escapeHtml(a.purpose || '')}</small></td>
+      <td>${escapeHtml(a.customer_name || a.customer_phone || '—')}</td>
+      <td>${escapeHtml(a.employee_name || 'Assigned Rep')}</td>
+      <td>${formatDate(a.start_time)}</td>
+      <td>${statusBadge(a.status)}</td>
+      <td>
+        ${a.status !== 'cancelled' && a.status !== 'completed' ? `
+          <button class="btn btn-sm btn-secondary" onclick="openRescheduleModal('${a.id}')">Reschedule</button>
+          <button class="btn btn-sm btn-danger" onclick="openCancelModal('${a.id}')">Cancel</button>
+        ` : '—'}
+      </td>
+    </tr>
+  `).join('');
+
+  if (currentCalView === 'month') renderMonthGrid();
+}
+
+function renderMonthGrid() {
+  const grid = document.getElementById('monthGrid');
+  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  document.getElementById('monthTitle').textContent = `${monthNames[currentMonth]} ${currentYear}`;
+
+  const daysHeader = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<div class="day-header">${d}</div>`).join('');
+  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const today = new Date();
+
+  let cells = '';
+  // Empty prior days
+  for (let i = 0; i < firstDay; i++) {
+    cells += `<div class="day-cell other-month"></div>`;
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const isToday = today.getDate() === d && today.getMonth() === currentMonth && today.getFullYear() === currentYear;
+    const thisDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayAppts = allAppts.filter(a => a.start_time && a.start_time.startsWith(thisDateStr));
+    const pills = dayAppts.map(a => `<span class="appt-pill" title="${escapeHtml(a.title || a.meeting_type)}">${formatTime(a.start_time)} ${escapeHtml(a.customer_name || a.meeting_type)}</span>`).join('');
+    cells += `
+      <div class="day-cell ${isToday ? 'today' : ''}" onclick="pickMonthDay('${thisDateStr}')">
+        <div class="day-num">${d}</div>
+        ${pills}
+      </div>
+    `;
+  }
+  grid.innerHTML = daysHeader + cells;
+}
+
+function changeMonth(delta) {
+  currentMonth += delta;
+  if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+  else if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+  renderMonthGrid();
+}
+
+function pickMonthDay(dateStr) {
+  document.getElementById('calDateFilter').value = dateStr;
+  switchCalView('list');
+  loadAppointments();
+}
+
+async function openBookModal() {
+  // Load staff
+  const res = await apiFetch('/employees');
+  if (res && res.ok) {
+    const d = await res.json();
+    document.getElementById('bkStaff').innerHTML = d.items.map(e => `
+      <option value="${e.id}">${escapeHtml(e.full_name)} (${escapeHtml(e.title || 'Staff')})</option>
+    `).join('');
+  }
+  const todayIso = new Date().toISOString().split('T')[0];
+  document.getElementById('bkDate').value = todayIso;
+  queryAvailableSlots();
+  openModal('bookModal');
+}
+
+async function queryAvailableSlots() {
+  const dVal = document.getElementById('bkDate').value;
+  const staffId = document.getElementById('bkStaff').value;
+  if (!dVal) return;
+  const res = await apiFetch(`/appointments/availability?date=${dVal}${staffId ? '&employee_id=' + staffId : ''}`);
+  const slotSelect = document.getElementById('bkSlot');
+  if (!res || !res.ok) { slotSelect.innerHTML = '<option value="">No availability</option>'; return; }
+  const data = await res.json();
+  if (!data.slots || !data.slots.length) {
+    slotSelect.innerHTML = `<option value="">${escapeHtml(data.reason || 'No open slots on this date')}</option>`;
+    return;
+  }
+  slotSelect.innerHTML = data.slots.map(s => `
+    <option value="${s.start_time}|${s.end_time}|${s.employee_id}">${formatTime(s.start_time)} - ${formatTime(s.end_time)} (${escapeHtml(s.employee_name)})</option>
+  `).join('');
+}
+
+async function confirmBooking() {
+  const phone = document.getElementById('bkPhone').value;
+  const slotVal = document.getElementById('bkSlot').value;
+  if (!phone || !slotVal) { showToast('Phone number and slot are required', 'error'); return; }
+
+  // Resolve customer
+  let custId = null;
+  const cRes = await apiFetch('/customers?search=' + encodeURIComponent(phone));
+  const cData = await cRes.json();
+  if (cData.items.length) {
+    custId = cData.items[0].id;
+  } else {
+    const newC = await apiFetch('/customers', { method: 'POST', body: JSON.stringify({ phone_number: phone }) });
+    if (!newC || !newC.ok) { showToast('Failed to create customer', 'error'); return; }
+    custId = (await newC.json()).id;
+  }
+
+  const [startIso, endIso, empId] = slotVal.split('|');
+  const payload = {
+    customer_id: custId,
+    employee_id: empId,
+    start_time: startIso,
+    end_time: endIso,
+    meeting_type: document.getElementById('bkType').value || 'Sales Discovery Call',
+    title: document.getElementById('bkType').value || 'Sales Discovery Call',
+    purpose: document.getElementById('bkNotes').value || null,
+    notes: document.getElementById('bkNotes').value || null,
+    booking_source: 'manual',
+  };
+
+  const res = await apiFetch('/appointments', { method: 'POST', body: JSON.stringify(payload) });
+  if (res && res.ok) {
+    showToast('Appointment successfully scheduled!');
+    closeModal('bookModal');
+    loadAppointments();
+  } else {
+    const err = await res.json();
+    showToast(err.message || 'Booking conflict or error', 'error');
+  }
+}
+
+function openRescheduleModal(id) {
+  document.getElementById('rsApptId').value = id;
+  const todayIso = new Date().toISOString().split('T')[0];
+  document.getElementById('rsDate').value = todayIso;
+  queryReschedSlots();
+  openModal('reschedModal');
+}
+
+async function queryReschedSlots() {
+  const dVal = document.getElementById('rsDate').value;
+  if (!dVal) return;
+  const res = await apiFetch(`/appointments/availability?date=${dVal}`);
+  const slotSelect = document.getElementById('rsSlot');
+  if (!res || !res.ok) { slotSelect.innerHTML = '<option value="">No availability</option>'; return; }
+  const data = await res.json();
+  if (!data.slots || !data.slots.length) {
+    slotSelect.innerHTML = `<option value="">${escapeHtml(data.reason || 'No open slots on this date')}</option>`;
+    return;
+  }
+  slotSelect.innerHTML = data.slots.map(s => `
+    <option value="${s.start_time}|${s.end_time}">${formatTime(s.start_time)} - ${formatTime(s.end_time)} (${escapeHtml(s.employee_name)})</option>
+  `).join('');
+}
+
+async function confirmReschedule() {
+  const id = document.getElementById('rsApptId').value;
+  const slotVal = document.getElementById('rsSlot').value;
+  if (!slotVal) { showToast('Please select a new slot', 'error'); return; }
+  const [startIso, endIso] = slotVal.split('|');
+
+  const res = await apiFetch(`/appointments/${id}/reschedule`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      new_start_time: startIso,
+      new_end_time: endIso,
+      reason: document.getElementById('rsReason').value || null,
+    })
+  });
+  if (res && res.ok) {
+    showToast('Appointment rescheduled!');
+    closeModal('reschedModal');
+    loadAppointments();
+  } else {
+    const err = await res.json();
+    showToast(err.message || 'Failed to reschedule', 'error');
+  }
+}
+
+function openCancelModal(id) {
+  document.getElementById('cancelApptId').value = id;
+  openModal('cancelModal');
+}
+
+async function confirmCancellation() {
+  const id = document.getElementById('cancelApptId').value;
+  const reason = document.getElementById('cancelReason').value;
+  if (!reason) { showToast('Reason is required', 'error'); return; }
+
+  const res = await apiFetch(`/appointments/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason })
+  });
+  if (res && res.ok) {
+    showToast('Appointment cancelled');
+    closeModal('cancelModal');
+    loadAppointments();
+  } else {
+    showToast('Failed to cancel', 'error');
+  }
+}
+
+// Customers & Inquiries & Leads functions
 async function loadCustomers() {
   const search = document.getElementById('custSearch').value;
   let url = '/customers?page_size=50';
@@ -356,15 +694,12 @@ async function loadInquiries() {
       <td>${statusBadge(i.status)}</td>
       <td>${statusBadge(i.priority)}</td>
       <td>${formatDateShort(i.created_at)}</td>
-      <td>
-        ${i.status !== 'resolved' ? `<button class="btn btn-sm btn-primary" onclick="resolveInquiry('${i.id}')">Resolve</button>` : '—'}
-      </td>
+      <td>${i.status !== 'resolved' ? `<button class="btn btn-sm btn-primary" onclick="resolveInquiry('${i.id}')">Resolve</button>` : '—'}</td>
     </tr>
   `).join('');
 }
 
 let activeLeadsList = [];
-
 async function loadLeads() {
   const status = document.getElementById('leadStatusFilter').value;
   let url = '/leads?page_size=50';
@@ -414,19 +749,14 @@ async function createInquiry() {
   const phone = document.getElementById('inqPhone').value;
   const subject = document.getElementById('inqSubject').value;
   if (!phone || !subject) { showToast('Phone and subject required', 'error'); return; }
-
   const custRes = await apiFetch('/customers?search=' + encodeURIComponent(phone));
   const custData = await custRes.json();
-  let customerId;
-  if (custData.items.length) {
-    customerId = custData.items[0].id;
-  } else {
+  let customerId = custData.items.length ? custData.items[0].id : null;
+  if (!customerId) {
     const newCust = await apiFetch('/customers', { method: 'POST', body: JSON.stringify({ phone_number: phone }) });
-    if (!newCust || !newCust.ok) { showToast('Failed to find/create customer', 'error'); return; }
-    const c = await newCust.json();
-    customerId = c.id;
+    if (!newCust || !newCust.ok) { showToast('Failed to create customer', 'error'); return; }
+    customerId = (await newCust.json()).id;
   }
-
   const payload = {
     customer_id: customerId,
     subject,
@@ -444,10 +774,7 @@ async function createInquiry() {
 }
 
 async function resolveInquiry(id) {
-  const res = await apiFetch('/inquiries/' + id, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: 'resolved' })
-  });
+  const res = await apiFetch('/inquiries/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'resolved' }) });
   if (res && res.ok) { showToast('Inquiry resolved'); loadInquiries(); }
   else showToast('Failed to resolve', 'error');
 }
@@ -458,8 +785,6 @@ async function openAssignLeadModal() {
   leadSelect.innerHTML = activeLeadsList.map(l => `
     <option value="${l.id}">${escapeHtml(l.title || 'Lead #' + l.id.substring(0,8))} (${l.qualification_tier})</option>
   `).join('');
-
-  // Load sales reps
   const empRes = await apiFetch('/employees?role=sales_employee');
   const repSelect = document.getElementById('assignRepSelect');
   if (empRes && empRes.ok) {

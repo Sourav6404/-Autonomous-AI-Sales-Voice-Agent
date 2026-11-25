@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 from backend.app.api.v1.ai_availability import router as ai_availability_router
+from backend.app.api.v1.appointments import router as appointments_router
 from backend.app.api.v1.auth import router as auth_router
 from backend.app.api.v1.business_hours import router as business_hours_router
 from backend.app.api.v1.business_settings import router as business_settings_router
@@ -36,3 +37,5 @@ api_v1_router.include_router(leads_router)
 api_v1_router.include_router(inquiries_router)
 api_v1_router.include_router(employees_router)
 api_v1_router.include_router(crm_dashboard_router)
+# Stage 7 Appointments & Calendar
+api_v1_router.include_router(appointments_router)
