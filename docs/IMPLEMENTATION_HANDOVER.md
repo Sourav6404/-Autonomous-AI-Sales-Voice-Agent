@@ -39,6 +39,18 @@ flowchart TD
   - 6 AI Receptionist tools: `check_appointment_availability`, `get_available_appointment_slots`, `book_appointment` (strictly enforces `customer_confirmed=True`), `get_customer_appointments`, `reschedule_appointment`, `cancel_appointment`.
   - Receptionist interactive Month & List calendar views, schedule modal, reschedule modal, cancel dialog.
   - Sales employee strictly read-only calendar view.
+- **Stage 8: Basic Human Handoff & AI Fallback**:
+  - Real-time customer intent extraction for human requests ("speak to person", "connect to sales", "transfer call", "human assistance").
+  - `request_human_handoff` tool: updates `Conversation.status = "handed_off"`, `Call.status = "handed_off"`, creates CRM `Inquiry` escalation tickets, and updates `Lead.qualification_tier = "hot"`.
+  - Live Handoff Queue in Receptionist portal (`/receptionist-dashboard`) with pending alert badge and one-click staff takeover (`POST /api/v1/conversations/{id}/takeover`).
+  - Resilient AI Fallback: catches upstream model timeouts/outages without crashing, safely records customer message, logs fallback turn, and offers human follow-up.
+- **Stage 9: Local Environment Setup and Reliability**:
+  - Enhanced `/health/ready` probe diagnosing PostgreSQL latency, Redis status (with automatic local dev fallback), AI provider configuration, and voice pipeline status.
+  - Comprehensive local setup and troubleshooting manual: `docs/LOCAL_SETUP_AND_TROUBLESHOOTING.md`.
+  - Zero-cost offline development mode using deterministic mock providers.
+- **Stage 10: Final Testing & Presentation Preparation**:
+  - 134 automated unit, integration, and concurrency tests passing with 100% pass rate.
+  - Comprehensive presentation and technical interview guide: `docs/PRESENTATION_PREPARATION.md`.
 
 ---
 
@@ -78,7 +90,7 @@ FortiSales AI/
 │   │       ├── receptionist.html
 │   │       ├── receptionist-portal.html
 │   │       └── sales.html
-│   └── tests/                    # 129 comprehensive automated tests
+│   └── tests/                    # 134 comprehensive automated tests
 ```
 
 ---
@@ -173,7 +185,7 @@ uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 ---
 
 ## 8. Test Execution
-Execute the complete test suite (129 tests across unit, integration, and concurrency):
+Execute the complete test suite (134 tests across unit, integration, and concurrency):
 ```bash
 python -m pytest backend/tests -v
 ```
