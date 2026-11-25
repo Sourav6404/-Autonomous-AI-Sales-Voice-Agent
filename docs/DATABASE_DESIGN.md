@@ -117,7 +117,7 @@ Staff profiles linked to users and departments.
 ### 3.2 Business Availability & Operations Configuration
 
 #### `business_settings`
-Global organizational receptionist operational flags and AI defaults.
+Global organizational receptionist operational flags, business profile, and AI defaults.
 - `id`: `UUID` (PK, default `gen_random_uuid()`)
 - `org_id`: `UUID` NOT NULL UNIQUE (FK `organizations.id` ON DELETE CASCADE)
 - `primary_language`: `VARCHAR(10)` NOT NULL DEFAULT 'en'
@@ -127,6 +127,11 @@ Global organizational receptionist operational flags and AI defaults.
 - `holiday_behavior`: `VARCHAR(50)` NOT NULL DEFAULT 'holiday_greeting'
 - `max_call_duration_seconds`: `INTEGER` NOT NULL DEFAULT 900 (15 minutes)
 - `recording_consent_required`: `BOOLEAN` NOT NULL DEFAULT true
+- `contact_phone`: `VARCHAR(50)` NULL
+- `contact_email`: `VARCHAR(255)` NULL
+- `business_address`: `TEXT` NULL
+- `business_description`: `TEXT` NULL
+- `business_services`: `TEXT` NULL
 - `created_at`: `TIMESTAMPTZ` NOT NULL DEFAULT clock_timestamp()
 - `updated_at`: `TIMESTAMPTZ` NOT NULL DEFAULT clock_timestamp()
 
@@ -176,6 +181,9 @@ Real-time state and operational overrides for the AI receptionist.
 - `auto_schedule_enabled`: `BOOLEAN` NOT NULL DEFAULT true
 - `emergency_closure_active`: `BOOLEAN` NOT NULL DEFAULT false
 - `emergency_reason`: `TEXT` NULL
+- `temp_offline_until`: `TIMESTAMPTZ` NULL
+- `scheduled_status`: `VARCHAR(50)` NULL
+- `scheduled_status_change_at`: `TIMESTAMPTZ` NULL
 - `last_status_change_at`: `TIMESTAMPTZ` NOT NULL DEFAULT clock_timestamp()
 - `changed_by_user_id`: `UUID` NULL (FK `users.id` ON DELETE SET NULL)
 - *Constraints*: `UNIQUE(org_id, department_id)`

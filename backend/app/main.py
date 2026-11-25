@@ -73,8 +73,10 @@ def create_application() -> FastAPI:
     app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(Exception, generic_exception_handler)
 
-    # API Routers
+    # API Routers (Mount at configured prefix and '/api/v1' alias for compatibility)
     app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
+    if settings.API_V1_PREFIX != "/api/v1":
+        app.include_router(api_v1_router, prefix="/api/v1")
 
     return app
 

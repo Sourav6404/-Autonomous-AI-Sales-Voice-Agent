@@ -1,8 +1,8 @@
 """Business settings for receptionist and telephony defaults."""
 
 import uuid
-from typing import TYPE_CHECKING
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String
+from typing import TYPE_CHECKING, Optional
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.app.models.base import GUID, Base, TenantMixin, TimestampMixin
 
@@ -31,6 +31,11 @@ class BusinessSettings(Base, TenantMixin, TimestampMixin):
     holiday_behavior: Mapped[str] = mapped_column(String(50), default="holiday_greeting", nullable=False)
     max_call_duration_seconds: Mapped[int] = mapped_column(Integer, default=900, nullable=False)
     recording_consent_required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    contact_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    contact_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    business_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    business_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    business_services: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="business_settings")

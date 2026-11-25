@@ -19,7 +19,7 @@ class User(Base, TenantMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("org_id", "email", name="uq_users_org_email"),
         CheckConstraint(
-            "role IN ('super_admin', 'admin', 'receptionist', 'sales_employee', 'ai_agent')",
+            "role IN ('owner', 'admin', 'receptionist', 'employee', 'super_admin', 'sales_employee', 'ai_agent')",
             name="ck_users_valid_role",
         ),
     )
@@ -30,7 +30,7 @@ class User(Base, TenantMixin, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), default="sales_employee", nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="employee", nullable=False)
     phone_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

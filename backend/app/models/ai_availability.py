@@ -30,6 +30,15 @@ class AIAvailability(Base, TenantMixin, TimestampMixin):
     auto_schedule_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     emergency_closure_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     emergency_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    temp_offline_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    scheduled_status: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )
+    scheduled_status_change_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_status_change_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

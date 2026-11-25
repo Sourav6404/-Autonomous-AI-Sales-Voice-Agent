@@ -24,58 +24,103 @@ The FortiSales AI API conforms to OpenAPI 3.1 standards and JSON:API conventions
 
 ## 2. Authentication & Tenant Authorization Endpoints
 
-### 2.1 Staff Authentication
+### 2.1 Organization Registration & Initial Owner
+- `POST /auth/register` (Available at `/api/v1/auth/register` and `/v1/auth/register`)
+  - **Body**:
+    ```json
+    {
+      "org_name": "Apex AI Solutions",
+      "org_slug": "apex-ai-solutions",
+      "timezone": "America/New_York",
+      "email": "owner@apexai.com",
+      "password": "SecurePassword123!",
+      "full_name": "Alice Apex",
+      "phone_number": "+15551234567"
+    }
+    ```
+  - **Response (201 Created)**:
+    ```json
+    {
+      "user": {
+        "id": "e2f1842e-1317-48f1-8f5b-0925e0c52bb1",
+        "org_id": "78b4081c-99d9-48f3-8b7c-c46b5a265691",
+        "email": "owner@apexai.com",
+        "full_name": "Alice Apex",
+        "role": "owner",
+        "is_active": true,
+        "created_at": "2026-11-25T23:00:00Z"
+      },
+      "org_id": "78b4081c-99d9-48f3-8b7c-c46b5a265691",
+      "org_name": "Apex AI Solutions",
+      "tokens": {
+        "access_token": "eyJhbGciOi...",
+        "refresh_token": "eyJhbGciOi...",
+        "token_type": "bearer",
+        "expires_in": 3600
+      }
+    }
+    ```
+
+### 2.2 Staff Authentication
 - `POST /auth/login`
-  - **Body**: `{ "email": "admin@company.com", "password": "securePassword123" }`
+  - **Body**: `{ "email": "owner@apexai.com", "password": "SecurePassword123!" }`
   - **Response (200 OK)**:
     ```json
     {
       "access_token": "eyJhbGciOi...",
-      "refresh_token": "dGhpcy1pcy1...",
-      "token_type": "Bearer",
-      "expires_in": 3600,
-      "user": {
-        "id": "e2f1842e-1317-48f1-8f5b-0925e0c52bb1",
-        "email": "admin@company.com",
-        "role": "admin",
-        "org_id": "78b4081c-99d9-48f3-8b7c-c46b5a265691"
-      }
+      "refresh_token": "eyJhbGciOi...",
+      "token_type": "bearer",
+      "expires_in": 3600
     }
     ```
 - `POST /auth/refresh`
-  - **Body**: `{ "refresh_token": "dGhpcy1pcy1..." }`
-  - **Response (200 OK)**: `{ "access_token": "...", "expires_in": 3600 }`
+  - **Body**: `{ "refresh_token": "eyJhbGciOi..." }`
+  - **Response (200 OK)**: `{ "access_token": "...", "refresh_token": "...", "token_type": "bearer", "expires_in": 3600 }`
 - `POST /auth/logout`
   - **Headers**: `Authorization: Bearer <token>`
-  - **Action**: Blacklists current token in Redis until expiry.
+  - **Action**: Blacklists current token until expiry.
+- `GET /auth/me`
+  - **Headers**: `Authorization: Bearer <token>`
+  - **Response (200 OK)**: Current authenticated user profile and role claims.
 
 ---
 
 ## 3. Business Availability & Operations Configuration Endpoints
 
-### 3.1 Operating Hours Management
-- `GET /organizations/{org_id}/business-hours`
-  - Returns standard weekly operating hours, split shifts, and department-specific overrides.
-- `PUT /organizations/{org_id}/business-hours`
-  - **Permissions**: `admin`, `super_admin`
+### 3.1 Organization Profile Management
+- `GET /organizations/me`
+  - Returns current tenant organization profile (name, slug, default_timezone).
+- `PATCH /organizations/me`
+  - **Permissions**: `owner`, `admin`
+  - **Body**: `{ "name": "Updated Corp Name", "default_timezone": "America/Chicago" }`
+
+### 3.2 Business Profile & Telephony Settings
+- `GET /business-settings`
+  - Returns business profile, address, contact phone/email, services, voice_id, after_hours_behavior, recording consent.
+- `PATCH /business-settings`
+  - **Permissions**: `owner`, `admin`
+  - **Body**: `{ "contact_phone": "+18005550199", "business_address": "100 Tech Blvd", "recording_consent_required": true }`
+
+### 3.3 Operating Hours Management
+- `GET /business-hours`
+  - Returns weekly operating hours, split shifts, and optional department filter (`?department_id=`).
+- `PUT /business-hours`
+  - **Permissions**: `owner`, `admin`
   - **Body**:
     ```json
     {
-      "hours": [
-        { "day_of_week": 1, "open_time": "09:00", "close_time": "18:00", "is_closed": false },
-        { "day_of_week": 2, "open_time": "09:00", "close_time": "18:00", "is_closed": false },
-        { "day_of_week": 3, "open_time": "09:00", "close_time": "18:00", "is_closed": false },
-        { "day_of_week": 4, "open_time": "09:00", "close_time": "18:00", "is_closed": false },
-        { "day_of_week": 5, "open_time": "09:00", "close_time": "17:00", "is_closed": false },
-        { "day_of_week": 6, "open_time": "10:00", "close_time": "14:00", "is_closed": false },
-        { "day_of_week": 0, "open_time": "00:00", "close_time": "00:00", "is_closed": true }
+      "schedules": [
+        { "day_of_week": 1, "open_time": "09:00:00", "close_time": "17:00:00", "is_closed": false },
+        { "day_of_week": 2, "open_time": "09:00:00", "close_time": "17:00:00", "is_closed": false },
+        { "day_of_week": 0, "open_time": "00:00:00", "close_time": "23:59:59", "is_closed": true }
       ]
     }
     ```
 
-### 3.2 Holidays & Special Schedules
-- `GET /organizations/{org_id}/holidays`
-- `POST /organizations/{org_id}/holidays`
+### 3.4 Holidays & Special Schedules
+- `GET /holidays`
+- `POST /holidays`
+  - **Permissions**: `owner`, `admin`
   - **Body**:
     ```json
     {
@@ -86,22 +131,34 @@ The FortiSales AI API conforms to OpenAPI 3.1 standards and JSON:API conventions
       "special_announcement": "Our offices are closed for the New Year. For urgent sales, press 1."
     }
     ```
-- `POST /organizations/{org_id}/special-schedules`
-  - Defines temporary closures or irregular working hours on specific dates.
+- `PATCH /holidays/{holiday_id}`
+- `DELETE /holidays/{holiday_id}`
+- `GET /special-schedules`
+- `POST /special-schedules`
+  - Defines temporary closures, split shifts, or custom working hours on specific dates.
+- `DELETE /special-schedules/{schedule_id}`
 
-### 3.3 AI Availability & Master Toggle
-- `GET /organizations/{org_id}/ai-availability`
-  - Returns current AI receptionist state (`online`, `offline`, `maintenance`), emergency status, and active routing mode.
-- `PATCH /organizations/{org_id}/ai-availability`
-  - **Permissions**: `receptionist`, `admin`, `super_admin`
-  - **Body**:
-    ```json
-    {
-      "status": "offline",
-      "emergency_closure_active": false,
-      "emergency_reason": "Manual operator maintenance"
-    }
-    ```
+### 3.5 AI Availability Precedence Resolution Engine
+- `GET /ai-availability/status`
+  - **Permissions**: `employee`, `receptionist`, `admin`, `owner`
+  - Query parameters: `?department_id=` (optional), `?timestamp=` (optional ISO timestamp)
+  - Evaluates strictly ordered precedence rules:
+    1. Emergency closure active -> Business Closed, AI Offline
+    2. Manual status override (`maintenance`, `takeover_only`, `offline`)
+    3. Temporary offline mode (`temp_offline_until`)
+    4. Special date schedule overrides
+    5. Holiday closures
+    6. Regular weekly operating hours
+    7. Default closed state (with AI handling after-hours per `after_hours_behavior`)
+- `PATCH /ai-availability`
+  - **Permissions**: `receptionist`, `admin`, `owner`
+  - Body: `{ "status": "online", "emergency_closure_active": false }`
+- `POST /ai-availability/temp-offline`
+  - **Permissions**: `receptionist`, `admin`, `owner`
+  - Body: `{ "duration_minutes": 60, "reason": "Staff Lunch Break" }`
+- `POST /ai-availability/scheduled-change`
+  - **Permissions**: `admin`, `owner`
+  - Body: `{ "scheduled_status": "maintenance", "scheduled_status_change_at": "2026-12-01T02:00:00Z" }`
 
 ---
 
