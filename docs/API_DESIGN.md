@@ -436,3 +436,90 @@ Staff receptionists connect to this channel to observe live calls in real time a
   - Returns structured AI post-call executive summary, sentiment analysis, key objections, and action items.
 - `POST /organizations/{org_id}/customers`
   - Upsert customer record by phone number.
+
+---
+
+## 9. Real-Time Voice Streaming Gateway & Tickets (Stage 4.1)
+
+### 9.1 Issue Voice-Session Ticket
+- `POST /voice/tickets` (available at `/v1/voice/tickets` and `/api/v1/voice/tickets`)
+- **Headers**: `Authorization: Bearer <access_token>`
+- **Permissions**: Authenticated staff (`owner`, `admin`, `receptionist`, `employee`)
+- **Description**: Generates a cryptographically secure, single-use, short-lived ticket for establishing a real-time voice WebSocket connection. The user ID and organization ID are derived strictly from the verified JWT.
+- **Request Body**:
+  ```json
+  {
+    "conversation_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "customer_id": "4b68e982-b7e1-4c7b-b3c9-04a88f7293a1"
+  }
+  ```
+  *(Note: `conversation_id` and `customer_id` are optional; if omitted, a new conversation/session is initialized upon connection).*
+- **Response (200 OK)**:
+  ```json
+  {
+    "ticket": "wB7x1_qS9...",
+    "expires_in": 30,
+    "websocket_url": "/api/v1/voice/stream"
+  }
+  ```
+- **Error Responses**:
+  - `401 Unauthorized`: Missing, expired, or invalid JWT token.
+  - `404 Not Found`: Specified `conversation_id` does not exist or does not belong to the caller's tenant.
+
+### 9.2 Real-Time Voice WebSocket Stream
+- `WebSocket /voice/stream` (available at `/v1/voice/stream` and `/api/v1/voice/stream`)
+- **Origin Validation**: Verified against `settings.CORS_ORIGINS`. Unauthorized origins are rejected with close code `4403 (Forbidden origin)`.
+- **Authentication**:
+  - Preferred First-Frame Auth message: Client immediately sends JSON text frame:
+    ```json
+    { "type": "auth", "ticket": "wB7x1_qS9..." }
+    ```
+  - Ticket is single-use and invalidated immediately via atomic deletion (Redis `GETDEL` or atomic in-memory fallback). Expired or replayed tickets result in close code `4401 (Unauthorized ticket)`.
+- **Audio Framing**:
+  - Raw binary frames: **16 kHz mono 16-bit linear PCM (LE)**.
+  - Recommended packet size: 20ms frames = 640 bytes. Max frame buffer: 250 frames (5.0s audio buffer).
+  - Oversized frames (> 12,800 bytes / 400ms burst) are rejected with error warning or connection termination.
+- **Client Control Messages (JSON text frames)**:
+  - `start`: `{ "type": "start", "recording_consent": false }`
+  - `interrupt`: `{ "type": "interrupt", "timestamp_ms": 12450 }`
+  - `mic_state`: `{ "type": "mic_state", "muted": true }`
+  - `end_session`: `{ "type": "end_session", "reason": "user_hangup" }`
+- **Server Event Messages (JSON text frames)**:
+  - `session_created`:
+    ```json
+    {
+      "type": "session_created",
+      "session_id": "78b4081c-...",
+      "call_id": "9a1f2b4c-...",
+      "conversation_id": "3fa85f64-...",
+      "state": "active",
+      "recording_consent_given": false
+    }
+    ```
+  - `session_ended`:
+    ```json
+    {
+      "type": "session_ended",
+      "session_id": "78b4081c-...",
+      "call_id": "9a1f2b4c-...",
+      "conversation_id": "3fa85f64-...",
+      "state": "terminated",
+      "duration_seconds": 45,
+      "reason": "user_hangup"
+    }
+    ```
+  - `error`:
+    ```json
+    {
+      "type": "error",
+      "code": "FRAME_OVERSIZED",
+      "message": "Audio frame size 15000 exceeds maximum allowed 12800 bytes"
+    }
+    ```
+- **WebSocket Close Codes**:
+  - `1000`: Normal closure (clean user hangup).
+  - `4401`: Unauthorized / invalid / expired ticket.
+  - `4403`: Forbidden origin header.
+  - `4409`: Conflict / concurrent connection to existing conversation (stale generation dropped).
+  - `4429`: Tenant concurrent voice session limit exceeded.
+  - `4500`: Internal server error during session initialization.

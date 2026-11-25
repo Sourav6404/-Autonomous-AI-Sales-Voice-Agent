@@ -10,6 +10,7 @@ from backend.app.api.v1.health import router as health_router
 from backend.app.api.v1.holidays import router as holidays_router
 from backend.app.api.v1.organizations import router as organizations_router
 from backend.app.api.v1.special_schedules import router as special_schedules_router
+from backend.app.api.v1.voice import router as voice_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(health_router)
@@ -21,3 +22,4 @@ api_v1_router.include_router(holidays_router)
 api_v1_router.include_router(special_schedules_router)
 api_v1_router.include_router(ai_availability_router)
 api_v1_router.include_router(conversations_router)
+api_v1_router.include_router(voice_router)

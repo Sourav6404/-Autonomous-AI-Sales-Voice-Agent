@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     LOG_FORMAT: Literal["json", "text"] = "json"
 
+    # Redis Settings
+    REDIS_URL: Optional[str] = None
+
+    # Voice Engine Settings (Stage 4)
+    VOICE_TICKET_EXPIRE_SECONDS: int = 30
+    VOICE_RECOVERY_TIMEOUT_SECONDS: int = 30
+    MAX_VOICE_SESSIONS_PER_TENANT: int = 25
+    VOICE_FRAME_BYTES: int = 640  # 20ms of 16kHz 16-bit mono PCM (320 samples * 2 bytes)
+    VOICE_MAX_BUFFER_FRAMES: int = 250  # 5 seconds of audio buffer maximum
+
     # AI & LLM Provider Configuration
     DEFAULT_AI_PROVIDER: Literal["openai", "gemini"] = "openai"
     OPENAI_API_KEY: Optional[str] = None

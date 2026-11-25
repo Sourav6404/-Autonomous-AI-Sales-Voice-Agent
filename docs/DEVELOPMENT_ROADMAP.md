@@ -6,9 +6,9 @@ This roadmap decomposes the development of FortiSales AI into discrete, independ
 flowchart LR
     S0["Stage 0: Architecture (Complete)"] --> S1["Stage 1: Core DB & Environment"]
     S1 --> S2["Stage 2: Auth & Organization APIs"]
-    S2 --> S3["Stage 3: Availability & Hours Engine"]
-    S3 --> S4["Stage 4: Document RAG & Vector Engine"]
-    S4 --> S5["Stage 5: Voice Pipeline (VAD/STT/TTS)"]
+    S2 --> S3["Stage 3: AI Conversation Engine"]
+    S3 --> S4["Stage 4: Real-Time Voice Engine"]
+    S4 --> S5["Stage 5: Knowledge Base & RAG"]
     S5 --> S6["Stage 6: Autonomous Agent State Machine"]
     S6 --> S7["Stage 7: Lead Qualification & CRM"]
     S7 --> S8["Stage 8: Appointment Booking Engine"]
@@ -77,7 +77,27 @@ flowchart LR
 
 ---
 
-## Stage 4: Company Knowledge Base Ingestion & RAG Retrieval Engine
+## Stage 4: Real-Time Voice Engine & Streaming Pipeline
+
+- **Objective**: Develop the real-time bidirectional voice engine enabling low-latency browser-based and telephony voice receptionist interactions.
+- **Sub-Stages**:
+  - **Sub-Stage 4.1: Secure Voice Session & WebSocket Gateway (Completed)**:
+    - Cryptographically secure single-use ticket mechanism (`POST /api/v1/voice/tickets`) with SHA-256 hashed storage, 30s TTL, and atomic redemption.
+    - Bidirectional WebSocket streaming gateway (`/api/v1/voice/stream`) with origin check against `CORS_ORIGINS` and first-frame authentication.
+    - Strict `TenantContext` lifecycle binding and deterministic cleanup across all exit paths.
+    - Real-time session state machine (`CONNECTING`, `INITIALIZING`, `ACTIVE`, `RECOVERABLE_DISCONNECT`, `TERMINATED`) with monotonic generation tracking.
+    - Point-in-time database transactions for `Call` (`recording_consent_given=False`) and `Conversation` lifecycle persistence.
+    - Linear PCM16 (16kHz mono, 20ms = 640-byte frames) framing protocol and bounded ring buffer (250 frames).
+    - 30-second disconnect recovery window with auto-drop timer.
+    - Zero schema migrations required; 13 comprehensive automated tests (90/90 passing overall).
+  - **Sub-Stage 4.2: Streaming STT & VAD Integration (Next)**: Deepgram Nova-2 streaming STT integration and Silero VAD end-of-speech detection.
+  - **Sub-Stage 4.3: Streaming TTS & Turnaround Pipeline**: Ultra-low-latency TTS streaming (Cartesia Sonic / ElevenLabs) with sentence-boundary chunking.
+  - **Sub-Stage 4.4: Frontend AudioWorklet & Voice Receptionist Console**: Browser Web Audio API AudioWorklet node for 16kHz PCM streaming and visual speech activity indicators.
+- **Status**: Sub-Stage 4.1 Completed (90/90 passing tests against PostgreSQL 16).
+
+---
+
+## Stage 5: Company Knowledge Base Ingestion & RAG Retrieval Engine
 - **Objective**: Implement document upload, text chunking, embedding generation, and cosine similarity vector retrieval using `pgvector`.
 - **Scope**:
   - File upload endpoint supporting PDF, Markdown, and TXT.

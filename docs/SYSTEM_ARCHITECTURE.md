@@ -190,6 +190,85 @@ flowchart TD
 
 ---
 
+### 3.3 Real-Time Voice Gateway & Session Management (Sub-Stage 4.1)
+
+Sub-Stage 4.1 establishes the secure bidirectional communication infrastructure connecting the browser to the backend voice pipeline:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Browser as Browser / Staff Console
+    participant REST as FastAPI REST Gateway
+    participant Redis as Redis / Token Store
+    participant WS as WebSocket Gateway (/voice/stream)
+    participant VSM as VoiceSessionManager
+    participant DB as PostgreSQL 16
+
+    Browser->>REST: POST /api/v1/voice/tickets (Bearer JWT)
+    REST->>REST: Verify JWT & extract user_id, org_id
+    REST->>Redis: Store SHA-256(ticket) with 30s TTL
+    REST-->>Browser: { ticket, expires_in: 30, websocket_url }
+
+    Browser->>WS: WebSocket Connect (Origin header)
+    WS->>WS: Validate Origin against CORS_ORIGINS
+    WS-->>Browser: Accept Connection
+    Browser->>WS: { type: "auth", ticket: "..." } (First-Frame Auth)
+    WS->>Redis: Atomic GETDEL SHA-256(ticket)
+    Redis-->>WS: TicketData { org_id, user_id, conversation_id }
+    Note over WS: Bind TenantContext(org_id)
+
+    WS->>VSM: get_or_create_session(org_id, user_id, conversation_id)
+    VSM->>DB: Atomic point-in-time tx: create Call (consent=False) & Conversation
+    DB-->>VSM: call_id, conversation_id
+    VSM-->>WS: VoiceSession (State: ACTIVE, Generation: 1)
+    WS-->>Browser: { type: "session_created", session_id, call_id, conversation_id }
+
+    loop Audio Streaming (PCM 16kHz, 20ms frames = 640 bytes)
+        Browser->>WS: Binary audio frames (640 bytes)
+        WS->>VSM: Enqueue frame to ring buffer (bounded to 250 frames)
+    end
+
+    alt Clean User Hangup
+        Browser->>WS: { type: "end_session", reason: "user_hangup" }
+        WS->>VSM: terminate_session(session_id, reason="user_hangup")
+        VSM->>DB: Atomic point-in-time tx: update Call status="completed", end_time, duration
+        WS-->>Browser: { type: "session_ended", duration_seconds, reason }
+        WS->>WS: Close code 1000
+    else Unexpected Network Disconnect
+        WS->>VSM: handle_disconnect(session_id) -> State: RECOVERABLE_DISCONNECT
+        VSM->>VSM: Start 30s recovery timer (generation-checked)
+        opt Reconnect within 30s
+            Browser->>WS: Reconnect with new ticket + existing conversation_id
+            WS->>VSM: Resumes session, bumps generation, cancels timer
+        end
+        opt Recovery window expires without reconnect
+            VSM->>DB: Atomic point-in-time tx: mark Call status="dropped", duration
+            VSM->>VSM: Transition state to TERMINATED
+        end
+    end
+    Note over WS: Clear TenantContext in finally block
+```
+
+#### Key Gateway Guarantees:
+1. **Single-Use Cryptographic Ticket Auth**:
+   - Tickets are generated with 256 bits of cryptographically secure random entropy (`secrets.token_urlsafe(32)`).
+   - Only the SHA-256 digest is stored in Redis (or in-memory fallback) with an aggressive 30-second TTL.
+   - Atomic consumption (`GETDEL`) ensures immediate single-use enforcement, rendering replay attacks impossible.
+   - Eliminates JWT leakage in browser URLs, query parameters, and intermediary server access logs.
+2. **Strict Origin Validation**:
+   - WebSockets enforce host and origin matching against `settings.CORS_ORIGINS`.
+   - Unauthorized origins are rejected immediately with close code `4403`.
+3. **TenantContext Lifecycle Enforcement**:
+   - Tenant context is set immediately upon ticket validation and cleared in a strict ASGI `try...finally` block across all exit paths (normal closure, client drop, or exception).
+4. **Point-in-Time Database Transactions**:
+   - The WebSocket gateway never holds open database transactions during active streaming.
+   - Database operations (Call/Conversation creation, hangup completion, disconnect dropping) are performed in short-lived, atomic point-in-time sessions.
+5. **Session Generation Protection**:
+   - When a connection reconnects to an existing conversation, `session.generation` increments monotonically.
+   - Any prior or concurrent connection attempting to stream to the same session is invalidated and closed with code `4409 (Conflict)`.
+
+---
+
 ## 4. Concurrent Call Processing & Session Isolation
 
 To guarantee that multiple simultaneous calls never leak state, cross-talk, or monopolize system threads:
