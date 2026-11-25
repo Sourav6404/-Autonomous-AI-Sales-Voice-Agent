@@ -49,6 +49,10 @@ class Lead(Base, TenantMixin, TimestampMixin):
     assigned_employee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         GUID(), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    priority: Mapped[Optional[str]] = mapped_column(String(20), default="medium", nullable=True)
+    qualification_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="leads")

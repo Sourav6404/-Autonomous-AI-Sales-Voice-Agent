@@ -94,6 +94,22 @@ def create_application() -> FastAPI:
         async def knowledge_console():
             return FileResponse(str(static_dir / "knowledge-console.html"))
 
+        @app.get("/admin-dashboard", include_in_schema=False)
+        async def admin_dashboard():
+            return FileResponse(str(static_dir / "admin.html"))
+
+        @app.get("/receptionist-dashboard", include_in_schema=False)
+        async def receptionist_dashboard():
+            return FileResponse(str(static_dir / "receptionist-portal.html"))
+
+        @app.get("/sales-dashboard", include_in_schema=False)
+        async def sales_dashboard():
+            return FileResponse(str(static_dir / "sales.html"))
+
+        @app.get("/", include_in_schema=False)
+        async def root():
+            return FileResponse(str(static_dir / "login.html"))
+
     return app
 
 

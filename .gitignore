@@ -33,6 +33,10 @@ htmlcov/
 postgres_data/
 *.log
 
+# File storage
+backend/storage/
+storage/
+
 # IDE
 .idea/
 .vscode/

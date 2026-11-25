@@ -15,6 +15,8 @@ from backend.app.core.exceptions import AppException
 from backend.app.core.tenant import TenantContext
 from backend.app.models.call import Call
 from backend.app.models.conversation import Conversation
+from backend.app.models.customer import Customer
+from backend.app.models.lead import Lead
 from backend.app.models.message import Message
 from backend.app.models.user import User
 from backend.app.schemas.conversation import (
@@ -44,9 +46,33 @@ async def create_conversation(
     """Creates a new isolated conversation session and linked call record for the tenant."""
     org_id = TenantContext.get_current_tenant_id()
 
-    # 1. Create underlying Call record for auditability
+    # 1. Resolve or create Customer record if phone number provided
+    customer_id = None
+    if payload.customer_phone:
+        cust_stmt = select(Customer).where(
+            Customer.org_id == org_id,
+            Customer.phone_number == payload.customer_phone,
+        )
+        cust_res = await db.execute(cust_stmt)
+        customer = cust_res.scalar_one_or_none()
+        if not customer:
+            customer = Customer(
+                org_id=org_id,
+                phone_number=payload.customer_phone,
+                total_calls_count=1,
+                last_called_at=datetime.now(timezone.utc),
+            )
+            db.add(customer)
+            await db.flush()
+        else:
+            customer.total_calls_count += 1
+            customer.last_called_at = datetime.now(timezone.utc)
+        customer_id = customer.id
+
+    # 2. Create underlying Call record for auditability
     call = Call(
         org_id=org_id,
+        customer_id=customer_id,
         caller_phone_number=payload.customer_phone or "+10000000000",
         callee_phone_number="AI-Receptionist",
         status="in_progress",
@@ -55,7 +81,7 @@ async def create_conversation(
     db.add(call)
     await db.flush()
 
-    # 2. Create Conversation record
+    # 3. Create Conversation record
     conv = Conversation(
         org_id=org_id,
         call_id=call.id,
@@ -196,6 +222,23 @@ async def end_conversation(
                 started_at = call.started_at if call.started_at.tzinfo else call.started_at.replace(tzinfo=timezone.utc)
                 ended_at = call.ended_at if call.ended_at.tzinfo else call.ended_at.replace(tzinfo=timezone.utc)
                 call.duration_seconds = int((ended_at - started_at).total_seconds())
+
+            # Auto-create Lead if customer exists and no lead yet for this call
+            if call.customer_id:
+                lead_query = select(Lead).where(Lead.originating_call_id == call.id)
+                lead_res = await db.execute(lead_query)
+                if not lead_res.scalar_one_or_none():
+                    new_lead = Lead(
+                        org_id=org_id,
+                        customer_id=call.customer_id,
+                        originating_call_id=call.id,
+                        title=f"Call inquiry from {call.caller_phone_number}",
+                        status="new",
+                        qualification_tier="warm",
+                        score=50,
+                        notes=conv.summary or "Generated from completed AI call session",
+                    )
+                    db.add(new_lead)
 
     await db.commit()
     await db.refresh(conv)

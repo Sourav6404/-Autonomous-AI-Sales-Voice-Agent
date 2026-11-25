@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.app.models.base import GUID, Base, TenantMixin, TimestampMixin
 
@@ -32,6 +32,9 @@ class Customer(Base, TenantMixin, TimestampMixin):
     company_name: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
     total_calls_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_called_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String(100), default="inbound_call", nullable=True)
+    tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="customers")

@@ -23,6 +23,7 @@ from backend.app.models.catalog import ProductService
 from backend.app.models.faq import FAQ
 from backend.app.models.policy import BusinessPolicy
 from backend.app.models.audit_log import AuditLog
+from backend.app.models.inquiry import Inquiry
 
 __all__ = [
     "Base",
@@ -53,4 +54,5 @@ __all__ = [
     "FAQ",
     "BusinessPolicy",
     "AuditLog",
+    "Inquiry",
 ]

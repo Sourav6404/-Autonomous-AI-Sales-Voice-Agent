@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FortiSales AI — Login</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary: #7C3AED;
+    --primary-deep: #6D28D9;
+    --primary-dark: #5B21B6;
+    --primary-light: #8B5CF6;
+    --bg-main: #FFFFFF;
+    --bg-workspace: #F8F7FC;
+    --lavender: #F5F3FF;
+    --border: #E7E3EF;
+    --text-primary: #27213A;
+    --text-secondary: #6B6478;
+    --text-muted: #91899E;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg-workspace);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  .login-card {
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 3rem 2.5rem;
+    width: 100%;
+    max-width: 440px;
+    box-shadow: 0 10px 40px rgba(124, 58, 237, 0.08);
+  }
+  .logo {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  .logo-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    background: var(--lavender);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin-bottom: 1rem;
+    font-size: 1.75rem;
+  }
+  .logo h1 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: -0.02em;
+  }
+  .logo p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin-top: 0.35rem;
+  }
+  .form-group {
+    margin-bottom: 1.25rem;
+  }
+  label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+  }
+  input {
+    width: 100%;
+    padding: 0.8rem 1rem;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    transition: all 0.2s;
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+  }
+  .btn {
+    width: 100%;
+    padding: 0.85rem;
+    background: var(--primary);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+  }
+  .btn:hover {
+    background: var(--primary-deep);
+  }
+  .btn:disabled {
+    background: var(--text-muted);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .error {
+    background: #FEE2E2;
+    border: 1px solid #FCA5A5;
+    color: #991B1B;
+    border-radius: 10px;
+    padding: 0.8rem;
+    font-size: 0.85rem;
+    margin-bottom: 1.25rem;
+    display: none;
+  }
+  .footer {
+    text-align: center;
+    margin-top: 2rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="logo">
+    <div class="logo-badge">⚡</div>
+    <h1>FortiSales AI</h1>
+    <p>Autonomous AI Sales Voice Agent Platform</p>
+  </div>
+  <div class="error" id="errorMsg"></div>
+  <form id="loginForm">
+    <div class="form-group">
+      <label for="email">Work Email</label>
+      <input type="email" id="email" placeholder="name@company.com" required autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn" id="loginBtn">Sign In</button>
+  </form>
+  <div class="footer">FortiSales AI &copy; 2026 — Enterprise Multi-Tenant Voice Platform</div>
+</div>
+
+<script>
+const TOKEN_KEY = 'fortisales_token';
+const ROLE_KEY = 'fortisales_role';
+
+const existing = localStorage.getItem(TOKEN_KEY);
+if (existing) {
+  const role = localStorage.getItem(ROLE_KEY) || '';
+  redirectByRole(role);
+}
+
+function redirectByRole(role) {
+  if (['owner','super_admin','admin'].includes(role)) {
+    window.location.href = '/admin-dashboard';
+  } else if (role === 'receptionist') {
+    window.location.href = '/receptionist-dashboard';
+  } else {
+    window.location.href = '/sales-dashboard';
+  }
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const errEl = document.getElementById('errorMsg');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+
+  try {
+    const res = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'Invalid credentials');
+    }
+    const token = data.access_token;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(ROLE_KEY, payload.role || '');
+    redirectByRole(payload.role || '');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+});
+</script>
+</body>
+</html>

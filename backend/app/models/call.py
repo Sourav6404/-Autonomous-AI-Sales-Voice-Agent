@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.app.models.base import GUID, Base, TenantMixin, TimestampMixin
 
@@ -52,6 +52,8 @@ class Call(Base, TenantMixin, TimestampMixin):
     recording_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     recording_consent_given: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sentiment_overall: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    outcome: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="calls")

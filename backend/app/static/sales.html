@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FortiSales AI — Sales Workspace</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary: #7C3AED;
+    --primary-deep: #6D28D9;
+    --primary-dark: #5B21B6;
+    --bg-main: #FFFFFF;
+    --bg-workspace: #F8F7FC;
+    --lavender: #F5F3FF;
+    --nav-selected: #EDE9FE;
+    --border: #E7E3EF;
+    --border-light: #F0EDF5;
+    --text-primary: #27213A;
+    --text-secondary: #6B6478;
+    --text-muted: #91899E;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg-workspace);
+    color: var(--text-primary);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  .sidebar {
+    width: 250px;
+    min-width: 250px;
+    background: var(--bg-main);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem 0;
+  }
+  .sidebar-logo {
+    padding: 0 1.5rem 1.25rem;
+    border-bottom: 1px solid var(--border-light);
+  }
+  .sidebar-logo h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  .sidebar-logo p {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 3px;
+  }
+  .nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+  }
+  .nav-item:hover { background: var(--lavender); color: var(--primary-deep); }
+  .nav-item.active { background: var(--nav-selected); color: var(--primary-deep); font-weight: 600; border-right: 3px solid var(--primary); }
+  .nav-item .icon { font-size: 1.1rem; width: 20px; text-align: center; }
+  .sidebar-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border-light); }
+  .user-info { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem; word-break: break-all; }
+  .btn-logout { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-secondary); padding: 0.45rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
+  .btn-logout:hover { border-color: #DC2626; color: #DC2626; }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { background: var(--bg-main); border-bottom: 1px solid var(--border); padding: 1.1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+  .topbar h1 { font-size: 1.25rem; font-weight: 700; }
+  .content { flex: 1; overflow-y: auto; padding: 2rem; }
+  .section { display: none; }
+  .section.active { display: block; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
+  .stat-card { background: var(--bg-main); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; }
+  .stat-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+  .stat-value { font-size: 2.1rem; font-weight: 700; color: var(--text-primary); margin-top: 0.25rem; }
+  .card { background: var(--bg-main); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 1.75rem; }
+  .card-header { padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
+  .card-header h3 { font-size: 1rem; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  th { background: var(--bg-workspace); color: var(--text-secondary); padding: 0.75rem 1.25rem; text-align: left; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+  td { padding: 0.9rem 1.25rem; border-top: 1px solid var(--border-light); }
+  tr:hover td { background: var(--lavender); }
+  .empty-state { text-align: center; padding: 3rem; color: var(--text-muted); }
+  .search-bar { display: flex; gap: 0.75rem; padding: 1rem 1.5rem 0.5rem; }
+  .search-bar select { padding: 0.6rem 1rem; background: var(--bg-main); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 0.875rem; }
+  .btn { padding: 0.6rem 1.2rem; border-radius: 8px; border: none; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-deep); }
+  .btn-sm { padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(39, 33, 58, 0.4); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--bg-main); border: 1px solid var(--border); border-radius: 14px; padding: 2rem; width: 520px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+  .modal h3 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.5rem; }
+  .form-group { margin-bottom: 1rem; }
+  .form-group label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.4rem; }
+  .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 0.65rem 0.9rem; background: var(--bg-main); border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
+  .modal-footer { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
+  .link-btn { background: none; border: 1px solid var(--border); color: var(--text-secondary); border-radius: 8px; padding: 0.6rem 1.2rem; cursor: pointer; font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<script src="/static/app.js"></script>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h2>🎯 FortiSales AI</h2>
+    <p>Sales Workspace</p>
+  </div>
+  <nav class="nav">
+    <button class="nav-item active" onclick="showSection('dashboard')"><span class="icon">📊</span>My Pipeline</button>
+    <button class="nav-item" onclick="showSection('my-leads')"><span class="icon">🎯</span>My Assigned Leads</button>
+    <button class="nav-item" onclick="showSection('my-clients')"><span class="icon">🧑‍💼</span>My Client Directory</button>
+    <button class="nav-item" onclick="showSection('profile')"><span class="icon">⚙️</span>Profile & Status</button>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info" id="userInfo">Loading…</div>
+    <button class="btn-logout" onclick="logout()">Sign Out</button>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="topbar">
+    <h1 id="pageTitle">My Pipeline</h1>
+  </div>
+  <div class="content">
+
+    <!-- Dashboard Section -->
+    <section id="sec-dashboard" class="section active">
+      <div class="stat-grid" id="statGrid"><div class="stat-card"><div class="stat-label">Loading…</div></div></div>
+      <div class="card">
+        <div class="card-header"><h3>Recent Opportunities</h3></div>
+        <table>
+          <thead><tr><th>Opportunity / Prospect</th><th>Status</th><th>Tier</th><th>Score</th><th>Date</th></tr></thead>
+          <tbody id="recentLeadsTable"><tr><td colspan="5" class="empty-state">Loading assigned leads…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- My Leads Section -->
+    <section id="sec-my-leads" class="section">
+      <div class="card">
+        <div class="card-header">
+          <h3>My Assigned Leads</h3>
+        </div>
+        <div class="search-bar">
+          <select id="myLeadStatusFilter" onchange="loadMyLeads()">
+            <option value="">All Statuses</option>
+            <option value="new">New</option>
+            <option value="contacted">Contacted</option>
+            <option value="qualified">Qualified</option>
+            <option value="converted">Converted</option>
+            <option value="lost">Lost</option>
+          </select>
+        </div>
+        <table>
+          <thead><tr><th>Prospect</th><th>Phone</th><th>Status</th><th>Tier</th><th>Score</th><th>Action</th></tr></thead>
+          <tbody id="myLeadsTable"><tr><td colspan="6" class="empty-state">Loading leads…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- My Clients Section -->
+    <section id="sec-my-clients" class="section">
+      <div class="card">
+        <div class="card-header"><h3>My Client Accounts</h3></div>
+        <table>
+          <thead><tr><th>Client Name</th><th>Phone</th><th>Email</th><th>Company</th></tr></thead>
+          <tbody id="myClientsTable"><tr><td colspan="4" class="empty-state">No assigned clients found</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Profile Section -->
+    <section id="sec-profile" class="section">
+      <div class="card" style="padding: 2rem; max-width: 600px;">
+        <h3 style="margin-bottom: 1.25rem;">Sales Profile & Availability</h3>
+        <div id="profileDetails" style="margin-bottom: 1.5rem; line-height: 1.8; color: var(--text-secondary);">Loading profile…</div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<!-- Edit Lead Modal -->
+<div class="modal-overlay" id="editLeadModal">
+  <div class="modal">
+    <h3>Manage Lead Opportunity</h3>
+    <input type="hidden" id="editLeadId">
+    <div class="form-group"><label>Opportunity Title</label><input type="text" id="leadTitle"></div>
+    <div class="form-group"><label>Pipeline Status</label>
+      <select id="leadStatus">
+        <option value="new">New</option>
+        <option value="contacted">Contacted</option>
+        <option value="qualified">Qualified</option>
+        <option value="unqualified">Unqualified</option>
+        <option value="converted">Converted</option>
+        <option value="lost">Lost</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Qualification Tier</label>
+      <select id="leadTier">
+        <option value="cold">Cold</option>
+        <option value="warm">Warm</option>
+        <option value="hot">Hot</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Score (0-100)</label><input type="number" id="leadScore" min="0" max="100"></div>
+    <div class="form-group"><label>Budget Range</label><input type="text" id="leadBudget"></div>
+    <div class="form-group"><label>Decision Timeline</label><input type="text" id="leadTimeline"></div>
+    <div class="form-group"><label>Extracted Needs & Conversation Summary</label><textarea id="leadQualNotes" rows="2"></textarea></div>
+    <div class="form-group"><label>Sales Notes & Follow-up Plan</label><textarea id="leadNotes" rows="2"></textarea></div>
+    <div class="modal-footer">
+      <button class="link-btn" onclick="closeModal('editLeadModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLead()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+requireAuth();
+
+const NAV_SECTIONS = ['dashboard','my-leads','my-clients','profile'];
+
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('sec-' + name).classList.add('active');
+  const idx = NAV_SECTIONS.indexOf(name);
+  if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
+  document.getElementById('pageTitle').textContent = {
+    'dashboard':'My Pipeline','my-leads':'My Assigned Leads','my-clients':'My Client Directory','profile':'Profile & Status'
+  }[name] || name;
+  if (name === 'dashboard') loadDashboard();
+  else if (name === 'my-leads') loadMyLeads();
+  else if (name === 'my-clients') loadMyClients();
+  else if (name === 'profile') loadProfile();
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+async function loadDashboard() {
+  const res = await apiFetch('/dashboard/sales');
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  document.getElementById('statGrid').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total Assigned</div><div class="stat-value">${d.my_leads_total}</div></div>
+    <div class="stat-card"><div class="stat-label">New Leads</div><div class="stat-value">${d.my_leads_new}</div></div>
+    <div class="stat-card"><div class="stat-label">Contacted</div><div class="stat-value">${d.my_leads_contacted}</div></div>
+    <div class="stat-card"><div class="stat-label">Qualified</div><div class="stat-value">${d.my_leads_qualified}</div></div>
+    <div class="stat-card"><div class="stat-label">Converted</div><div class="stat-value">${d.my_leads_converted}</div></div>
+  `;
+  const tbody = document.getElementById('recentLeadsTable');
+  if (!d.recent_leads || !d.recent_leads.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No assigned leads yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = d.recent_leads.map(l => `
+    <tr>
+      <td><b>${escapeHtml(l.title || 'Opportunity #' + l.id.substring(0,8))}</b></td>
+      <td>${statusBadge(l.status)}</td>
+      <td>${statusBadge(l.qualification_tier)}</td>
+      <td><b>${l.score}</b>/100</td>
+      <td>${formatDateShort(l.created_at)}</td>
+    </tr>
+  `).join('');
+}
+
+let cachedLeads = [];
+
+async function loadMyLeads() {
+  const status = document.getElementById('myLeadStatusFilter').value;
+  let url = '/leads/my?page_size=50';
+  if (status) url += '&status=' + status;
+  const res = await apiFetch(url);
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  cachedLeads = d.items || [];
+  const tbody = document.getElementById('myLeadsTable');
+  if (!cachedLeads.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No leads assigned to you</td></tr>';
+    return;
+  }
+  tbody.innerHTML = cachedLeads.map(l => `
+    <tr>
+      <td><b>${l.customer ? escapeHtml(((l.customer.first_name||'') + ' ' + (l.customer.last_name||'')).trim() || l.title || 'Prospect') : '—'}</b></td>
+      <td>${l.customer ? escapeHtml(l.customer.phone_number) : '—'}</td>
+      <td>${statusBadge(l.status)}</td>
+      <td>${statusBadge(l.qualification_tier)}</td>
+      <td><b>${l.score}</b>/100</td>
+      <td><button class="btn btn-sm btn-primary" onclick="openEditLead('${l.id}')">Manage</button></td>
+    </tr>
+  `).join('');
+}
+
+async function loadMyClients() {
+  const res = await apiFetch('/leads/my?page_size=100');
+  if (!res || !res.ok) return;
+  const d = await res.json();
+  const tbody = document.getElementById('myClientsTable');
+  const seen = new Set();
+  const clients = [];
+  (d.items || []).forEach(l => {
+    if (l.customer && !seen.has(l.customer.id)) {
+      seen.add(l.customer.id);
+      clients.push(l.customer);
+    }
+  });
+  if (!clients.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No client accounts assigned yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = clients.map(c => `
+    <tr>
+      <td><b>${escapeHtml(((c.first_name||'') + ' ' + (c.last_name||'')).trim() || '—')}</b></td>
+      <td>${escapeHtml(c.phone_number)}</td>
+      <td>${escapeHtml(c.email || '—')}</td>
+      <td>${escapeHtml(c.company_name || '—')}</td>
+    </tr>
+  `).join('');
+}
+
+function openEditLead(leadId) {
+  const lead = cachedLeads.find(l => l.id === leadId);
+  if (!lead) return;
+  document.getElementById('editLeadId').value = lead.id;
+  document.getElementById('leadTitle').value = lead.title || '';
+  document.getElementById('leadStatus').value = lead.status;
+  document.getElementById('leadTier').value = lead.qualification_tier;
+  document.getElementById('leadScore').value = lead.score;
+  document.getElementById('leadBudget').value = lead.budget_range || '';
+  document.getElementById('leadTimeline').value = lead.decision_timeline || '';
+  document.getElementById('leadQualNotes').value = lead.qualification_notes || '';
+  document.getElementById('leadNotes').value = lead.notes || '';
+  openModal('editLeadModal');
+}
+
+async function saveLead() {
+  const leadId = document.getElementById('editLeadId').value;
+  const payload = {
+    title: document.getElementById('leadTitle').value || null,
+    status: document.getElementById('leadStatus').value,
+    qualification_tier: document.getElementById('leadTier').value,
+    score: parseInt(document.getElementById('leadScore').value, 10) || 0,
+    budget_range: document.getElementById('leadBudget').value || null,
+    decision_timeline: document.getElementById('leadTimeline').value || null,
+    qualification_notes: document.getElementById('leadQualNotes').value || null,
+    notes: document.getElementById('leadNotes').value || null,
+  };
+  const res = await apiFetch('/leads/' + leadId, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+  if (res && res.ok) {
+    showToast('Lead updated');
+    closeModal('editLeadModal');
+    loadMyLeads();
+  } else {
+    showToast('Failed to update lead', 'error');
+  }
+}
+
+async function loadProfile() {
+  const res = await apiFetch('/employees/me');
+  if (!res || !res.ok) {
+    document.getElementById('profileDetails').textContent = 'Could not load employee profile.';
+    return;
+  }
+  const e = await res.json();
+  document.getElementById('profileDetails').innerHTML = `
+    <p><b>Name:</b> ${escapeHtml(e.full_name)}</p>
+    <p><b>Email:</b> ${escapeHtml(e.email)}</p>
+    <p><b>Role:</b> ${escapeHtml(e.role)}</p>
+    <p><b>Title:</b> ${escapeHtml(e.title || 'Sales Representative')}</p>
+    <p><b>Phone:</b> ${escapeHtml(e.phone_number || '—')}</p>
+    <p><b>Account Status:</b> ${e.is_active ? '<span style="color:#16A34A;font-weight:600">Active</span>' : '<span style="color:#DC2626;font-weight:600">Inactive</span>'}</p>
+  `;
+}
+
+(async () => {
+  const token = getToken();
+  if (!token) return logout();
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  document.getElementById('userInfo').textContent = payload.email;
+  loadDashboard();
+})();
+</script>
+</body>
+</html>
