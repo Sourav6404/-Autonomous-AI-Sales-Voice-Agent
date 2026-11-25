@@ -1,0 +1,4 @@
+Product or Service: Hospital Enterprise PACS Deployment
+Category: Enterprise
+Description: Multi-facility on-premise imaging storage archive.
+Pricing: Custom quotation required. There is no standard fixed price; quotation must be requested.

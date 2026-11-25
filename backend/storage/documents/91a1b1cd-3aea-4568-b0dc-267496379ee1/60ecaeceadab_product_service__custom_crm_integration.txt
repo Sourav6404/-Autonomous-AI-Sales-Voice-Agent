@@ -1,0 +1,4 @@
+Product or Service: Custom CRM Integration
+Category: Enterprise
+Description: Integration with legacy enterprise databases.
+Pricing: Starting from 1500.00 USD. Final price varies based on scope or options.

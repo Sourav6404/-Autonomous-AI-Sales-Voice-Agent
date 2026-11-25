@@ -19,6 +19,9 @@ from backend.app.models.lead import Lead
 from backend.app.models.appointment import Appointment
 from backend.app.models.follow_up_task import FollowUpTask
 from backend.app.models.knowledge import KnowledgeDocument, KnowledgeChunk
+from backend.app.models.catalog import ProductService
+from backend.app.models.faq import FAQ
+from backend.app.models.policy import BusinessPolicy
 from backend.app.models.audit_log import AuditLog
 
 __all__ = [
@@ -46,5 +49,8 @@ __all__ = [
     "FollowUpTask",
     "KnowledgeDocument",
     "KnowledgeChunk",
+    "ProductService",
+    "FAQ",
+    "BusinessPolicy",
     "AuditLog",
 ]

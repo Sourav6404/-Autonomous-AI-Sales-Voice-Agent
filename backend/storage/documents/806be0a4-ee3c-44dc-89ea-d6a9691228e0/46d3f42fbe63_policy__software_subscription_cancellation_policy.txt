@@ -1,0 +1,4 @@
+Policy Type: cancellation
+Policy Title: Software Subscription Cancellation Policy
+Terms and Details:
+Subscriptions may be cancelled with 30 days written notice before the annual renewal date.

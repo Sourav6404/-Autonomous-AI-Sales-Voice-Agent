@@ -1,0 +1,3 @@
+Category: Telephony
+Question: What happens if a caller calls after business hours?
+Answer: Our AI receptionist answers immediately, takes a message, or books an appointment for the next morning.

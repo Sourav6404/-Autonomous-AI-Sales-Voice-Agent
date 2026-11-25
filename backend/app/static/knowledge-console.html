@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FortiSales AI - Knowledge Base & RAG Console</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); padding: 24px; min-height: 100vh; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; }
+    h1 { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+    .badge { font-size: 12px; background: rgba(79, 70, 229, 0.2); color: #818cf8; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(129, 140, 248, 0.3); }
+    .auth-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; background: var(--card-bg); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--card-border); }
+    .auth-bar input { flex: 1; padding: 8px 12px; background: #0f172a; border: 1px solid var(--card-border); border-radius: 6px; color: var(--text); }
+    .btn { padding: 8px 16px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-secondary { background: #334155; color: white; }
+    .btn-secondary:hover { background: #475569; }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; overflow-x: auto; }
+    .tab-btn { padding: 10px 18px; border-radius: 6px; border: none; background: transparent; color: var(--text-muted); font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { background: var(--card-bg); color: #fff; border: 1px solid var(--card-border); }
+    .tab-panel { display: none; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 24px; }
+    .tab-panel.active { display: block; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group.full-width { grid-column: span 2; }
+    label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+    input, select, textarea { padding: 10px 12px; background: #0f172a; border: 1px solid var(--card-border); border-radius: 6px; color: var(--text); font-size: 14px; }
+    textarea { min-height: 80px; resize: vertical; }
+    .table-container { overflow-x: auto; margin-top: 16px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th, td { padding: 12px; border-bottom: 1px solid var(--card-border); font-size: 14px; }
+    th { color: var(--text-muted); font-weight: 600; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .tag-fixed { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .tag-starting { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .tag-quote { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+    .result-card { background: #0f172a; border: 1px solid var(--card-border); border-radius: 6px; padding: 16px; margin-bottom: 12px; }
+    .result-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--text-muted); }
+    .score-badge { color: #818cf8; font-weight: 700; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #1e293b; color: white; padding: 12px 20px; border-radius: 8px; border: 1px solid var(--card-border); box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 100; display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>FortiSales AI <span class="badge">Stage 5 Knowledge Base & RAG</span></h1>
+      <a href="/voice-console" style="color: #818cf8; text-decoration: none; font-size: 14px; font-weight: 600;">Open Voice Receptionist &rarr;</a>
+    </header>
+
+    <div class="auth-bar">
+      <label for="jwtToken" style="font-size: 14px; color: white;">JWT Bearer Token:</label>
+      <input type="password" id="jwtToken" placeholder="Paste your authentication token here..." />
+      <button class="btn btn-primary" onclick="saveAuthToken()">Save & Load</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('company')">Company Overview</button>
+      <button class="tab-btn" onclick="switchTab('products')">Products & Services</button>
+      <button class="tab-btn" onclick="switchTab('faqs')">FAQs</button>
+      <button class="tab-btn" onclick="switchTab('policies')">Business Policies</button>
+      <button class="tab-btn" onclick="switchTab('documents')">Documents & Files</button>
+      <button class="tab-btn" onclick="switchTab('tester')">RAG Semantic Query Tester</button>
+    </div>
+
+    <!-- 1. Company Overview Panel -->
+    <div id="tab-company" class="tab-panel active">
+      <h2 style="margin-bottom: 16px;">Business Identity & Settings</h2>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Business Name</label>
+          <input type="text" id="comp-name" placeholder="Acme Medical Corp" />
+        </div>
+        <div class="form-group">
+          <label>Industry</label>
+          <input type="text" id="comp-industry" placeholder="Healthcare / SaaS / Retail" />
+        </div>
+        <div class="form-group">
+          <label>Website</label>
+          <input type="text" id="comp-website" placeholder="https://example.com" />
+        </div>
+        <div class="form-group">
+          <label>Contact Phone</label>
+          <input type="text" id="comp-phone" placeholder="+1-800-555-0199" />
+        </div>
+        <div class="form-group">
+          <label>Contact Email</label>
+          <input type="email" id="comp-email" placeholder="contact@example.com" />
+        </div>
+        <div class="form-group">
+          <label>Office Address</label>
+          <input type="text" id="comp-address" placeholder="123 Innovation Way, Suite 400" />
+        </div>
+        <div class="form-group full-width">
+          <label>Company Overview</label>
+          <textarea id="comp-overview" placeholder="Summary of the organization, core values, and mission..."></textarea>
+        </div>
+        <div class="form-group full-width">
+          <label>Primary Services</label>
+          <textarea id="comp-services" placeholder="Main services and specializations offered..."></textarea>
+        </div>
+        <div class="form-group full-width">
+          <label>Additional Information</label>
+          <textarea id="comp-additional" placeholder="Any additional notes or operating requirements..."></textarea>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="saveCompanyInfo()">Save & Synchronize to Vector RAG</button>
+    </div>
+
+    <!-- 2. Products & Services Panel -->
+    <div id="tab-products" class="tab-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2>Products & Services Catalogue</h2>
+        <button class="btn btn-primary" onclick="openProductModal()">+ Add Product / Service</button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Pricing Type</th>
+              <th>Price</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="products-table-body">
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading products...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. FAQs Panel -->
+    <div id="tab-faqs" class="tab-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2>Frequently Asked Questions (FAQs)</h2>
+        <button class="btn btn-primary" onclick="openFaqModal()">+ Add FAQ</button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>Category</th>
+              <th>Active</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="faqs-table-body">
+            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading FAQs...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4. Policies Panel -->
+    <div id="tab-policies" class="tab-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2>Business Policies & Rules</h2>
+        <button class="btn btn-primary" onclick="openPolicyModal()">+ Add Policy</button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Policy Type</th>
+              <th>Title</th>
+              <th>Active</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="policies-table-body">
+            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading policies...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. Documents Panel -->
+    <div id="tab-documents" class="tab-panel">
+      <h2 style="margin-bottom: 16px;">Ingest Documents & Files (PDF, DOCX, TXT, MD)</h2>
+      <div style="background: #0f172a; padding: 20px; border-radius: 8px; border: 1px dashed var(--card-border); margin-bottom: 24px;">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Select Document File</label>
+            <input type="file" id="doc-file-input" accept=".pdf,.docx,.txt,.md,.json,.csv" />
+          </div>
+          <div class="form-group">
+            <label>Document Title (Optional)</label>
+            <input type="text" id="doc-title-input" placeholder="e.g. 2026 Customer Service Guide" />
+          </div>
+          <div class="form-group">
+            <label>Document Classification</label>
+            <select id="doc-type-input">
+              <option value="general">General Documentation</option>
+              <option value="product_spec">Product Specification</option>
+              <option value="pricing">Pricing & Rate Card</option>
+              <option value="policy">Terms & Policy</option>
+              <option value="faq">FAQ Collection</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="uploadDocument()">Upload & Vectorize Document</button>
+      </div>
+
+      <h3>Vectorized Source Documents</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Type</th>
+              <th>Chunks</th>
+              <th>Ingested At</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="documents-table-body">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading documents...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 6. Semantic Query Tester Panel -->
+    <div id="tab-tester" class="tab-panel">
+      <h2 style="margin-bottom: 16px;">RAG Semantic Similarity Tester</h2>
+      <div class="form-grid">
+        <div class="form-group full-width">
+          <label>Customer Search Phrase / Question</label>
+          <input type="text" id="test-query-input" placeholder="e.g. What is your refund policy or consultation fee?" />
+        </div>
+        <div class="form-group">
+          <label>Minimum Similarity Threshold</label>
+          <input type="number" id="test-threshold-input" value="0.20" step="0.05" min="0" max="1" />
+        </div>
+        <div class="form-group">
+          <label>Result Limit</label>
+          <input type="number" id="test-limit-input" value="4" min="1" max="10" />
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="testSemanticQuery()">Run pgvector Cosine Search</button>
+
+      <div style="margin-top: 24px;">
+        <h3 style="margin-bottom: 12px;">Retrieved Knowledge Chunks:</h3>
+        <div id="test-results-container">
+          <p style="color: var(--text-muted);">Enter a query above and execute search to view vector matches.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/static/knowledge-console.js"></script>
+</body>
+</html>

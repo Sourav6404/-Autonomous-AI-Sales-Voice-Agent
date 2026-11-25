@@ -1,0 +1,10 @@
+Business Name: Apex Medical Technologies
+Industry: Medical Devices & HealthTech
+Website: https://apexmed.tech
+Phone: +1-800-555-APEX
+Email: care@apexmed.tech
+Address: 500 Health Way, Boston MA
+Description: Innovative medical imaging and telehealth platforms.
+Overview: Apex provides FDA-cleared diagnostic scanning devices and AI diagnostics.
+Core Services: Imaging system sales, annual maintenance contracts, remote clinical triage.
+Additional Information: All sales include a 1-year manufacturer warranty.

@@ -1,0 +1,5 @@
+Product or Service: Standard AI Voice Receptionist
+Category: Voice AI
+Description: 24/7 autonomous phone triage and scheduling.
+Pricing: Fixed confirmed price of 299.00 USD.
+Key Features: Deepgram STT, Silero VAD, Cartesia TTS

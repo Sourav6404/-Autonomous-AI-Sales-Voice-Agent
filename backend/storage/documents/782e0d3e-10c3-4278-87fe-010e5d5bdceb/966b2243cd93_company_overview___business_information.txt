@@ -1,0 +1,9 @@
+Business Name: Alpha Dynamics Global
+Industry: Artificial Intelligence
+Website: https://alpha.example.com
+Phone: +1-800-555-0100
+Email: hello@alpha.com
+Address: 100 Silicon Blvd
+Overview: Leading enterprise AI voice agent solutions.
+Core Services: Sales AI receptionists, real-time call triage
+Additional Information: HIPAA compliant and SOC2 certified.

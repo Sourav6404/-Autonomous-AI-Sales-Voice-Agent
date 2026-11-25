@@ -69,3 +69,84 @@ class HumanHandoffOutput(BaseModel):
     handoff_status: str
     message: str
     ticket_reference: str
+
+
+# ---------------------------------------------------------------------------
+# Stage 5: Knowledge Base & RAG Tools
+# ---------------------------------------------------------------------------
+class QueryKnowledgeBaseInput(BaseModel):
+    """Input for semantic knowledge base search."""
+
+    query: str = Field(..., description="The search phrase or customer inquiry to search in business documents and knowledge base.")
+    document_type: Optional[str] = Field(None, description="Optional document filter: 'faq', 'product_spec', 'policy', 'pricing', 'general'")
+
+
+class QueryKnowledgeBaseOutput(BaseModel):
+    """Retrieved knowledge chunks."""
+
+    found: bool
+    count: int
+    chunks: List[Dict[str, Any]]
+    summary: str
+
+
+class GetProductOrServiceDetailsInput(BaseModel):
+    """Input for product/service catalogue inquiry."""
+
+    name: Optional[str] = Field(None, description="Exact or partial name of product or service.")
+    category: Optional[str] = Field(None, description="Product or service category.")
+
+
+class ProductOrServiceItem(BaseModel):
+    name: str
+    category: str
+    description: str
+    pricing_type: str  # 'fixed', 'starting_from', 'quotation_required'
+    price: Optional[str] = None
+    currency: str
+    features: Optional[str] = None
+    benefits: Optional[str] = None
+    specifications: Optional[str] = None
+    pricing_guidance: str
+
+
+class ProductOrServiceDetailsOutput(BaseModel):
+    found: bool
+    count: int
+    items: List[ProductOrServiceItem]
+
+
+class GetBusinessPolicyInput(BaseModel):
+    """Input to look up company rules and policies."""
+
+    policy_type: str = Field(..., description="Type of policy: 'cancellation', 'refund', 'reschedule', 'payment', 'warranty', 'privacy', 'consultation_fee', 'booking_rules'")
+
+
+class PolicyItem(BaseModel):
+    policy_type: str
+    title: str
+    content: str
+
+
+class BusinessPolicyOutput(BaseModel):
+    found: bool
+    policies: List[PolicyItem]
+
+
+class GetFAQAnswerInput(BaseModel):
+    """Input for frequently asked questions lookup."""
+
+    query: str = Field(..., description="Specific question or topic customer is asking about.")
+    category: Optional[str] = Field(None, description="FAQ category filter.")
+
+
+class FAQItem(BaseModel):
+    question: str
+    answer: str
+    category: str
+
+
+class FAQAnswerOutput(BaseModel):
+    found: bool
+    count: int
+    items: List[FAQItem]

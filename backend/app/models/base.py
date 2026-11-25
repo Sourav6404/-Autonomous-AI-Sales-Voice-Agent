@@ -40,8 +40,29 @@ class GUID(TypeDecorator):
         return uuid.UUID(value)
 
 
+class VectorComparator(UserDefinedType.Comparator):
+    """Custom comparator providing vector distance operators (<=>, <->)."""
+
+    def cosine_distance(self, other: Any):
+        from sqlalchemy.sql import cast, literal
+        if isinstance(other, (list, tuple)):
+            val = "[" + ",".join(str(float(x)) for x in other) + "]"
+            return self.op("<=>")(cast(literal(val), self.expr.type))
+        return self.op("<=>")(other)
+
+    def l2_distance(self, other: Any):
+        from sqlalchemy.sql import cast, literal
+        if isinstance(other, (list, tuple)):
+            val = "[" + ",".join(str(float(x)) for x in other) + "]"
+            return self.op("<->")(cast(literal(val), self.expr.type))
+        return self.op("<->")(other)
+
+
 class VectorType(UserDefinedType):
     """PostgreSQL pgvector vector type."""
+
+    cache_ok = True
+    comparator_factory = VectorComparator
 
     def __init__(self, dim: int = 384):
         self.dim = dim

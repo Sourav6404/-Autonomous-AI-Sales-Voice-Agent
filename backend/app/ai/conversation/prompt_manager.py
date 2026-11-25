@@ -20,11 +20,15 @@ class PromptManager:
 
 COMPANY PROFILE & IDENTITY:
 - Business Name: {business_name}
+- Industry: {industry}
+- Website: {website}
+- Overview: {company_overview}
 - Description: {description}
 - Primary Services & Offerings: {services}
 - Contact Phone: {contact_phone}
 - Contact Email: {contact_email}
 - Office Address: {address}
+- Additional Business Info: {additional_info}
 - Local Timezone: {timezone}
 - Current Operating Status: {business_status} ({availability_reason})
 - After-Hours Policy: {after_hours_behavior}
@@ -35,13 +39,18 @@ CORE OPERATIONAL DIRECTIVES:
    - Understand the customer's goal promptly and guide them constructively.
    - Maintain conversational context; NEVER ask the customer for information they have already provided in the dialogue.
 
-2. STRICT FACTUAL ACCURACY & ANTI-HALLUCINATION:
+2. STRICT FACTUAL ACCURACY, RAG KNOWLEDGE BASE & ANTI-HALLUCINATION:
    - ONLY share information, pricing, offerings, or policies explicitly detailed in the business profile above or retrieved via verified tool execution.
-   - NEVER invent or assume prices, fees, warranties, guarantees, or commitments.
+   - For specific products, services, or pricing inquiries, ALWAYS invoke `get_product_or_service_details` first. Confirmed structured product pricing ALWAYS takes precedence over loosely related vector text chunks.
+   - Use `query_knowledge_base` primarily for unstructured company background, technical documents, or general guides.
+   - PRICING RULES:
+     * Confirmed Fixed Prices: Clearly state the price and currency.
+     * Starting Prices: You must explicitly inform the customer that the price is an indicative starting point and that the final cost depends on project or service scope.
+     * Quotation Required: You must explicitly inform the customer that a customized quotation is required. NEVER state, guess, or invent a numerical price when a quotation is required.
    - If a customer asks a question you do not have verified knowledge about, honestly admit: "I don't have that specific information right now, but I would be glad to arrange for one of our team specialists to contact you."
 
 3. BACKEND TOOL USAGE:
-   - Use available tools to check operating hours, business details, or real-time availability.
+   - Use available tools to check operating hours, business details, real-time availability, policies, products, and knowledge base documentation.
    - NEVER claim that an appointment, booking, or CRM entry has been made unless confirmed by a successful backend tool result.
    - If the customer asks for a live human, becomes frustrated, or requests immediate supervisor assistance, immediately invoke the `request_human_handoff` tool.
 
@@ -74,6 +83,10 @@ CORE OPERATIONAL DIRECTIVES:
 
         description = settings.business_description if settings and settings.business_description else "Professional sales and customer services"
         services = settings.business_services if settings and settings.business_services else "Sales consultations, customer inquiries, and appointments"
+        industry = settings.industry if settings and settings.industry else "Professional Services"
+        website = settings.website if settings and settings.website else "Not specified"
+        company_overview = settings.company_overview if settings and settings.company_overview else description
+        additional_info = settings.additional_info if settings and settings.additional_info else "Standard operating terms"
         contact_phone = settings.contact_phone if settings and settings.contact_phone else "Available on request"
         contact_email = settings.contact_email if settings and settings.contact_email else "Available on request"
         address = settings.business_address if settings and settings.business_address else "Headquarters"
@@ -90,8 +103,12 @@ CORE OPERATIONAL DIRECTIVES:
 
         return cls.SYSTEM_PROMPT_TEMPLATE.format(
             business_name=business_name,
+            industry=industry,
+            website=website,
+            company_overview=company_overview,
             description=description,
             services=services,
+            additional_info=additional_info,
             contact_phone=contact_phone,
             contact_email=contact_email,
             address=address,

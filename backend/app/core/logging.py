@@ -78,3 +78,8 @@ def setup_logging(log_level: str = "INFO", log_format: str = "json") -> None:
 
 
 logger = logging.getLogger("fortisales")
+
+
+def get_logger(name: str = "fortisales") -> logging.Logger:
+    """Convenience helper to obtain a named logger."""
+    return logging.getLogger(name)

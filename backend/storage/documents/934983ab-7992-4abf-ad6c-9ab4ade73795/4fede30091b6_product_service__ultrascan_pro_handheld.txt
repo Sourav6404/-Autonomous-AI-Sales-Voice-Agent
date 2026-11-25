@@ -1,0 +1,5 @@
+Product or Service: UltraScan Pro Handheld
+Category: Hardware
+Description: Portable point-of-care ultrasound scanner.
+Pricing: Fixed confirmed price of 4999.00 USD.
+Key Features: Wireless probe, 8-hour battery

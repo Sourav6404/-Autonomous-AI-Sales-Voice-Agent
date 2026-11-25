@@ -1,0 +1,5 @@
+Product or Service: Clinical AI Analytics Suite
+Category: Software
+Description: Cloud diagnostic triage and workflow acceleration.
+Pricing: Starting from 250.00 USD. Final price varies based on scope or options.
+Key Features: PACS integration, real-time alerting

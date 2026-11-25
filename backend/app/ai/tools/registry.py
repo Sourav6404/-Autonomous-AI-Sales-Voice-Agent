@@ -88,6 +88,10 @@ class ToolRegistry:
             )
         return definitions
 
+    def get_tool(self, name: str) -> Optional[Dict[str, Any]]:
+        """Retrieve tool registration dictionary by name."""
+        return self._tools.get(name)
+
     async def execute_tool(
         self,
         name: str,

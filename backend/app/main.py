@@ -90,6 +90,10 @@ def create_application() -> FastAPI:
         async def voice_console():
             return FileResponse(str(static_dir / "receptionist.html"))
 
+        @app.get("/knowledge-console", include_in_schema=False)
+        async def knowledge_console():
+            return FileResponse(str(static_dir / "knowledge-console.html"))
+
     return app
 
 

@@ -1,0 +1,4 @@
+Policy Type: cancellation
+Policy Title: 24-Hour Appointment Cancellation Policy
+Terms and Details:
+Appointments cancelled with less than 24 hours notice are subject to a 50 USD rescheduling fee.

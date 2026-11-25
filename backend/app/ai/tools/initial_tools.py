@@ -8,18 +8,33 @@ from backend.app.ai.tools.schemas import (
     AIAvailabilityOutput,
     BusinessHoursOutput,
     BusinessInformationOutput,
+    BusinessPolicyOutput,
+    FAQAnswerOutput,
+    FAQItem,
     GetAIAvailabilityInput,
     GetBusinessHoursInput,
     GetBusinessInformationInput,
+    GetBusinessPolicyInput,
+    GetFAQAnswerInput,
+    GetProductOrServiceDetailsInput,
     HumanHandoffOutput,
+    PolicyItem,
+    ProductOrServiceDetailsOutput,
+    ProductOrServiceItem,
+    QueryKnowledgeBaseInput,
+    QueryKnowledgeBaseOutput,
     RequestHumanHandoffInput,
     WeekdayHourDetail,
 )
 from backend.app.models.business_hours import BusinessHours
 from backend.app.models.business_settings import BusinessSettings
+from backend.app.models.catalog import ProductService
 from backend.app.models.conversation import Conversation
+from backend.app.models.faq import FAQ
 from backend.app.models.organization import Organization
+from backend.app.models.policy import BusinessPolicy
 from backend.app.services.availability_service import AvailabilityService
+from backend.app.services.rag.retriever import KnowledgeRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -153,3 +168,194 @@ async def request_human_handoff(
         message="Your request has been escalated to a live representative. A team member has been notified.",
         ticket_reference=ticket_id,
     )
+
+
+# ===========================================================================
+# Stage 5 Tools: Knowledge Base, Catalogue, Policies, and FAQs
+# ===========================================================================
+_knowledge_retriever = KnowledgeRetriever()
+
+
+@tool_registry.register(
+    name="query_knowledge_base",
+    description="Retrieve factual knowledge, company documents, specifications, or policies via semantic vector search. For specific product catalogue, offerings, or pricing inquiries, prefer 'get_product_or_service_details'.",
+    input_schema=QueryKnowledgeBaseInput,
+)
+async def query_knowledge_base(
+    args: QueryKnowledgeBaseInput,
+    context: ToolExecutionContext,
+) -> QueryKnowledgeBaseOutput:
+    """Performs tenant-isolated vector search across knowledge base chunks."""
+    doc_types = [args.document_type] if args.document_type else None
+    results = await _knowledge_retriever.search(
+        db=context.db,
+        org_id=context.org_id,
+        query=args.query,
+        limit=3,
+        document_types=doc_types,
+    )
+
+    if not results:
+        return QueryKnowledgeBaseOutput(
+            found=False,
+            count=0,
+            chunks=[],
+            summary="No relevant knowledge base records matched the query.",
+        )
+
+    chunk_dicts = [
+        {
+            "document_title": r.document_title,
+            "document_type": r.document_type,
+            "content": r.content,
+            "relevance_score": r.score,
+        }
+        for r in results
+    ]
+
+    summary_lines = [f"[{r.document_title}]: {r.content}" for r in results]
+    return QueryKnowledgeBaseOutput(
+        found=True,
+        count=len(results),
+        chunks=chunk_dicts,
+        summary="\n---\n".join(summary_lines),
+    )
+
+
+@tool_registry.register(
+    name="get_product_or_service_details",
+    description="Look up verified product and service offerings, specifications, features, and confirmed pricing rules directly from the business catalogue. Use this tool first whenever a customer asks about products, services, or pricing.",
+    input_schema=GetProductOrServiceDetailsInput,
+)
+async def get_product_or_service_details(
+    args: GetProductOrServiceDetailsInput,
+    context: ToolExecutionContext,
+) -> ProductOrServiceDetailsOutput:
+    """Fetches exact products and services with strict anti-hallucination pricing guidance."""
+    stmt = select(ProductService).where(
+        ProductService.org_id == context.org_id,
+        ProductService.is_available == True,
+    )
+
+    if args.name:
+        stmt = stmt.where(ProductService.name.ilike(f"%{args.name}%"))
+    if args.category:
+        stmt = stmt.where(ProductService.category.ilike(f"%{args.category}%"))
+
+    stmt = stmt.limit(5)
+    res = await context.db.execute(stmt)
+    products = res.scalars().all()
+
+    items: List[ProductOrServiceItem] = []
+    for p in products:
+        price_str = f"{p.price:.2f}" if p.price is not None else None
+        if p.pricing_type == "fixed":
+            guidance = f"Confirmed price is {price_str} {p.currency}. This is a fixed and confirmed price."
+        elif p.pricing_type == "starting_from":
+            guidance = f"Price starts from {price_str} {p.currency}. You must clarify to the customer that this is an indicative starting price and the final cost depends on requirements."
+        else:
+            guidance = "Custom quotation required. You must explicitly tell the customer that quotation is required and NEVER state or guess a price."
+
+        items.append(
+            ProductOrServiceItem(
+                name=p.name,
+                category=p.category,
+                description=p.description,
+                pricing_type=p.pricing_type,
+                price=price_str,
+                currency=p.currency,
+                features=p.features,
+                benefits=p.benefits,
+                specifications=p.specifications,
+                pricing_guidance=guidance,
+            )
+        )
+
+    return ProductOrServiceDetailsOutput(
+        found=len(items) > 0,
+        count=len(items),
+        items=items,
+    )
+
+
+@tool_registry.register(
+    name="get_business_policy",
+    description="Retrieve company policies regarding cancellations, refunds, rescheduling, payments, warranties, or privacy.",
+    input_schema=GetBusinessPolicyInput,
+)
+async def get_business_policy(
+    args: GetBusinessPolicyInput,
+    context: ToolExecutionContext,
+) -> BusinessPolicyOutput:
+    """Fetches verified company terms and conditions."""
+    stmt = select(BusinessPolicy).where(
+        BusinessPolicy.org_id == context.org_id,
+        BusinessPolicy.is_active == True,
+        BusinessPolicy.policy_type.ilike(f"%{args.policy_type}%"),
+    )
+    res = await context.db.execute(stmt)
+    policies = res.scalars().all()
+
+    items = [
+        PolicyItem(
+            policy_type=p.policy_type,
+            title=p.title,
+            content=p.content,
+        )
+        for p in policies
+    ]
+
+    return BusinessPolicyOutput(found=len(items) > 0, policies=items)
+
+
+@tool_registry.register(
+    name="get_faq_answer",
+    description="Look up verified frequently asked questions (FAQs) and standardized answers.",
+    input_schema=GetFAQAnswerInput,
+)
+async def get_faq_answer(
+    args: GetFAQAnswerInput,
+    context: ToolExecutionContext,
+) -> FAQAnswerOutput:
+    """Finds matching FAQ records for the customer's question."""
+    stmt = select(FAQ).where(
+        FAQ.org_id == context.org_id,
+        FAQ.is_active == True,
+    )
+    if args.category:
+        stmt = stmt.where(FAQ.category.ilike(f"%{args.category}%"))
+
+    # Try keyword match on question or answer
+    query_pattern = f"%{args.query}%"
+    stmt_kw = stmt.where(FAQ.question.ilike(query_pattern) | FAQ.answer.ilike(query_pattern)).limit(3)
+    res = await context.db.execute(stmt_kw)
+    faqs = res.scalars().all()
+
+    # If no exact SQL match, fallback to vector retrieval for FAQs
+    if not faqs:
+        results = await _knowledge_retriever.search(
+            db=context.db,
+            org_id=context.org_id,
+            query=args.query,
+            limit=2,
+            document_types=["faq"],
+        )
+        items = [
+            FAQItem(
+                question=args.query,
+                answer=r.content,
+                category=r.document_type,
+            )
+            for r in results
+        ]
+        return FAQAnswerOutput(found=len(items) > 0, count=len(items), items=items)
+
+    items = [
+        FAQItem(
+            question=f.question,
+            answer=f.answer,
+            category=f.category,
+        )
+        for f in faqs
+    ]
+    return FAQAnswerOutput(found=len(items) > 0, count=len(items), items=items)

@@ -1,0 +1,3 @@
+Category: Telephony
+Question: What happens if a caller calls after business hours?
+Answer: Our AI receptionist answers immediately and transfers urgent calls to on-call staff.

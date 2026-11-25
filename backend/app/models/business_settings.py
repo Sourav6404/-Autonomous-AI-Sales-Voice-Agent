@@ -36,6 +36,10 @@ class BusinessSettings(Base, TenantMixin, TimestampMixin):
     business_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     business_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     business_services: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    website: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    industry: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    company_overview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    additional_info: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="business_settings")

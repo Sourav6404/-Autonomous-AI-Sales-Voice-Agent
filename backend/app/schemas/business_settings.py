@@ -28,6 +28,14 @@ class BusinessSettingsResponse(BaseModel):
     business_address: Optional[str] = None
     business_description: Optional[str] = None
     business_services: Optional[str] = None
+    website: Optional[str] = Field(None, max_length=255)
+    industry: Optional[str] = Field(None, max_length=100)
+    company_overview: Optional[str] = None
+    additional_info: Optional[str] = None
+    website: Optional[str] = None
+    industry: Optional[str] = None
+    company_overview: Optional[str] = None
+    additional_info: Optional[str] = None
     updated_at: datetime
 
 
@@ -48,6 +56,10 @@ class BusinessSettingsUpdateRequest(BaseModel):
     business_address: Optional[str] = None
     business_description: Optional[str] = None
     business_services: Optional[str] = None
+    website: Optional[str] = Field(None, max_length=255)
+    industry: Optional[str] = Field(None, max_length=100)
+    company_overview: Optional[str] = None
+    additional_info: Optional[str] = None
 
     @field_validator("contact_email")
     @classmethod
