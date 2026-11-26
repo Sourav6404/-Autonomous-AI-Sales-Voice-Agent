@@ -2,375 +2,142 @@
 
 ## 1. Architectural Overview & Design Philosophy
 
-**FortiSales AI** is engineered as a decoupled, event-driven, micro-modular architecture built around real-time asynchronous streaming pipelines. It bridges telephone/WebRTC voice traffic with generative AI models and business operational systems (CRM, scheduling, knowledge bases).
+**FortiSales AI** is engineered as a decoupled, event-driven architecture built around real-time asynchronous streaming pipelines. It bridges browser and telephone voice traffic with generative AI models and business operational systems (CRM, scheduling, knowledge bases).
 
 The core design principles are:
-1. **Low-Latency Streaming First**: Every audio and token pathway uses streaming (WebSockets, SSE, chunked audio) to achieve sub-second conversational turnaround.
-2. **Strict Session Isolation**: Every call executes in an encapsulated state machine backed by Redis, ensuring zero memory leakage between simultaneous calls.
-3. **Resilience & Graceful Degradation**: Subsystem failures (e.g., RAG vector search timeout, rate limiting) fall back to deterministic safety mechanisms rather than terminating calls.
-4. **Developer Pragmatism & Maintainability**: Clean boundaries between asynchronous I/O (FastAPI WebSockets), background tasks (Celery/Redis), and relational persistence (PostgreSQL/SQLAlchemy).
+1. **Low-Latency Streaming First**: Every audio and token pathway uses streaming (WebSockets, binary PCM16 audio, chunked TTS) to achieve sub-500ms conversational turnaround.
+2. **Strict Session & Multi-Tenant Isolation**: Every call executes in an encapsulated state machine. All relational queries and vector lookups are strictly bounded by `org_id` using Python's async-safe `contextvars.ContextVar`.
+3. **Resilience & Graceful Degradation**: Subsystem failures (e.g. remote AI provider timeout, Redis offline in local dev) fall back to deterministic safety mechanisms rather than terminating calls.
+4. **Developer Pragmatism & Zero-Build Lightweight Frontend**: Built with Python 3.11, FastAPI, PostgreSQL 16, and pure Vanilla HTML5/CSS3/ES6+ JavaScript (Web Audio API `AudioWorkletNode`), eliminating bulky Node.js/npm build steps and allowing the entire stack to run locally with `uvicorn`.
 
 ```mermaid
 flowchart TB
-    subgraph ClientLayer ["Client & Ingestion Layer"]
-        Caller["Inbound Telephony / WebRTC Client"]
-        StaffUI["React + TypeScript Admin & Staff Dashboard"]
+    subgraph ClientLayer ["1. Client Layer"]
+        Caller["Browser AudioWorklet / Telephone Client"]
+        StaffUI["Vanilla HTML5/CSS3/JS Portals (White & Violet)"]
     end
 
-    subgraph GatewayLayer ["Reverse Proxy & Ingress"]
-        Nginx["Nginx / Envoy API & WebSocket Gateway"]
+    subgraph AppLayer ["2. FastAPI Application Engine"]
+        VoiceGateway["WebSocket Voice Gateway (/v1/voice/stream)"]
+        REST_API["FastAPI REST API (Auth, CRM, Schedules, Knowledge)"]
+        Orchestrator["Conversation Orchestrator & Tool Registry"]
     end
 
-    subgraph AppLayer ["FastAPI Application Services"]
-        CallGateway["Call WebSocket Gateway (Asynchronous Audio Pipeline)"]
-        REST_API["FastAPI REST API (Auth, CRM, Schedules, RAG Ingestion)"]
-        LiveMonitor["Live Call Monitor & Human Takeover Hub (WebSockets)"]
+    subgraph StateAndMemory ["3. Caching & Voice Ticket Store"]
+        RedisSession[("Redis 7+ / Thread-Safe In-Memory Fallback<br/>- Single-Use 256-Bit Tickets (GETDEL)<br/>- Recovery Timers")]
     end
 
-    subgraph StateAndMemory ["In-Memory Cache & Session State"]
-        RedisSession["Redis Session Store (Call State, VAD Buffers, Pub/Sub)"]
+    subgraph DataStorage ["4. Persistent Storage Layer"]
+        Postgres[("PostgreSQL 16 Multi-Tenant DB<br/>- Relational Schema (3NF)<br/>- pgvector 384-dim Cosine Index<br/>- btree_gist GiST Exclusion Constraint")]
     end
 
-    subgraph AsyncWorkers ["Background Task Engine"]
-        CeleryWorker["Celery / Async Task Workers"]
-        CeleryBeat["Celery Beat (Scheduled Availability Sync & Maintenance)"]
-    end
-
-    subgraph DataStorage ["Persistent Storage Layer"]
-        Postgres[("PostgreSQL 16 (Relational + pgvector Knowledge Base)")]
-        AudioStore[("S3 / Local Object Storage (Call Audio & Transcripts)")]
-    end
-
-    subgraph ExternalServices ["External AI & Telephony Providers"]
-        STT_Service["Streaming STT (Deepgram Nova-2 / Whisper API)"]
+    subgraph ExternalServices ["5. External AI & Voice Providers (with Deterministic Mocks)"]
+        STT_Service["Deepgram Nova-2 Streaming STT"]
+        VAD_Engine["Silero VAD (Frame Energy Analysis)"]
         LLM_Engine["LLM Reasoning (OpenAI GPT-4o-mini / Gemini 1.5 Flash)"]
-        TTS_Service["Streaming TTS (Cartesia Sonic / ElevenLabs Turbo / OpenAI TTS)"]
-        Twilio["Twilio / SIP Voice Gateway"]
+        TTS_Service["Streaming TTS (Cartesia Sonic / ElevenLabs)"]
     end
 
-    Caller <-->|Audio Stream WSS| Nginx
-    StaffUI <-->|HTTPS REST & WSS| Nginx
-    Nginx <-->|Proxy WSS| CallGateway
-    Nginx <-->|Proxy HTTPS| REST_API
-    Nginx <-->|Proxy WSS| LiveMonitor
+    Caller <-->|16kHz PCM16 WebSocket| VoiceGateway
+    StaffUI <-->|HTTPS REST & WebSockets| REST_API
 
-    CallGateway <-->|Read / Write Fast Context| RedisSession
-    CallGateway <-->|Bi-directional Audio| STT_Service
-    CallGateway <-->|Prompt & Stream Tokens| LLM_Engine
-    CallGateway <-->|Tokens to Audio Stream| TTS_Service
-    CallGateway -->|Enqueue Post-Call Tasks| RedisSession
+    VoiceGateway <-->|Validate Single-Use Ticket| RedisSession
+    VoiceGateway <-->|End-of-Speech & Interruption| VAD_Engine
+    VoiceGateway -->|Raw PCM16 Stream| STT_Service
+    STT_Service -->|Final Transcript| Orchestrator
+    Orchestrator <-->|Prompt & Tool Calls| LLM_Engine
+    Orchestrator -->|Sentence Chunks| TTS_Service
+    TTS_Service -->|Synthesized PCM16 Audio| VoiceGateway
 
-    REST_API <-->|SQLAlchemy ORM| Postgres
-    CeleryWorker <-->|Pop Tasks| RedisSession
-    CeleryWorker -->|Write Summaries, Leads| Postgres
-    CeleryWorker -->|Store Recordings| AudioStore
-    CeleryBeat -->|Trigger Availability Sync| RedisSession
-    LiveMonitor <-->|Pub/Sub Live Transcript & Intercept| RedisSession
+    Orchestrator <-->|RAG Cosine Search & Catalog| Postgres
+    REST_API <-->|SQLAlchemy 2.0 Asyncpg| Postgres
 ```
 
 ---
 
-## 2. Technology Stack Evaluation & Selection Rationale
+## 2. Implemented Technology Stack & Architectural Justification
 
-The suggested stack was rigorously assessed for latency, developer velocity, multi-call scalability, and operational complexity:
-
-| Component | Proposed in Prompt | Evaluated Options | Final Decision | Architectural Justification |
-|---|---|---|---|---|
-| **Frontend** | React + TypeScript | React + TS, Next.js, Vue 3 | **React + TypeScript (Vite)** | Single Page Application (SPA) with Vite provides near-instant HMR, strict type safety, rich WebRTC/WebSocket support, and zero server-side rendering (SSR) overhead for internal dashboards. |
-| **Backend Framework** | FastAPI | FastAPI, Node.js (NestJS), Go | **FastAPI (Python 3.11+)** | Native async/await event loops (`uvloop`), high WebSocket concurrency, first-class integration with Python AI/ML libraries, automatic OpenAPI documentation, and Pydantic v2 data validation. |
-| **Primary Database** | PostgreSQL | PostgreSQL, MySQL, MongoDB | **PostgreSQL 16** | Robust ACID transactional guarantees for booking slots, multi-tenant relational schema, strong indexing, and native extension ecosystem (`pgvector`, `uuid-ossp`). |
-| **ORM** | SQLAlchemy | SQLAlchemy 2.0, Tortoise ORM, Prisma | **SQLAlchemy 2.0 (Async)** | Industry standard for Python; version 2.0 delivers full `asyncio` compatibility, declarative mapping, strong typing with Mypy, and reliable connection pooling. |
-| **Cache & State** | Redis | Redis, Dragonfly, KeyDB | **Redis 7.2** | Sub-millisecond latency for live call context buffers, atomic locks for appointment booking, TTL eviction for stale sessions, and Redis Pub/Sub for real-time human takeover broadcast. |
-| **Real-time Protocol** | WebSockets | WebSockets, gRPC, WebRTC | **WebSockets + WebRTC (Hybrid)** | WebSockets for bidirectional raw audio framing and control messages between client/telephony gateway and FastAPI; WebRTC for zero-latency peer-to-peer human takeover bridging. |
-| **LLM Reasoning** | OpenAI API & Gemini API | OpenAI (GPT-4o / GPT-4o-mini), Gemini 1.5 Flash, Anthropic Claude 3.5 Haiku | **Hybrid: Gemini 1.5 Flash + OpenAI GPT-4o-mini** | Dual-provider strategy: **Gemini 1.5 Flash** as primary (superb speed, low cost, 1M+ token context for complex RAG synthesis) with **OpenAI GPT-4o-mini** as automatic failover. |
-| **Vector Database** | ChromaDB | ChromaDB, PostgreSQL (`pgvector`), Qdrant | **PostgreSQL (`pgvector`) [Primary] / ChromaDB [Local Dev Fallback]** | Running `pgvector` inside PostgreSQL eliminates operating a separate vector database cluster, provides transactional consistency between metadata and embeddings, and enforces tenant isolation in single queries. |
-| **Embeddings** | Sentence Transformers | Local Sentence Transformers (`all-MiniLM-L6-v2`), OpenAI `text-embedding-3-small` | **Hybrid: Local Sentence Transformers (`all-MiniLM-L6-v2`) + OpenAI `text-embedding-3-small`** | Local model allows zero API cost and low latency for small chunks; cloud embedding API provides higher dimensionality when cloud resources are preferred. |
-| **Background Processing**| Celery | Celery, Taskiq, ARQ | **Celery + Redis Broker** | Battle-tested for heavy post-call transcription summarization, CRM webhook dispatches, and periodic scheduled sync (Celery Beat). For purely async lightweight tasks, FastAPI `BackgroundTasks` handle sub-100ms jobs. |
-| **Containerization** | Docker | Docker + Compose, Podman, Kubernetes | **Docker + Docker Compose** | Multi-container reproducible environment (FastAPI backend, React frontend, PostgreSQL with pgvector, Redis, Celery worker, Celery beat). |
+| Component | Final Implemented Decision | Architectural Justification |
+|---|---|---|
+| **Backend Framework** | **FastAPI (Python 3.11+)** | Native async/await event loops, high WebSocket concurrency, first-class Python AI library ecosystem, automatic OpenAPI documentation, and Pydantic v2 data validation. |
+| **Primary Database** | **PostgreSQL 16** | Robust ACID transactional guarantees, multi-tenant relational schema, `pgvector` for vector similarity, and `btree_gist` for GiST exclusion constraints preventing appointment double-booking. |
+| **Data Access & ORM** | **SQLAlchemy 2.0 (Async)** | Full `asyncio` compatibility with Asyncpg driver, declarative mapping, strong typing, and reliable connection pooling; Psycopg2 for Alembic migrations. |
+| **Cache & State Store** | **Redis 7+ (with In-Memory Fallback)** | Ephemeral 256-bit single-use voice tickets with atomic `GETDEL` redemption. Automatic thread-safe in-memory fallback engages when Redis is unconfigured in local dev. |
+| **Real-Time Voice Protocol** | **WebSockets + PCM16** | Full-duplex bidirectional streaming of 16kHz linear PCM16 mono audio frames (20ms = 640 bytes) with 2-byte sample alignment and bounded ring buffers. |
+| **Speech-to-Text (STT)** | **Deepgram Nova-2** | Sub-150ms streaming transcription over WebSockets, with deterministic mock provider for zero-cost offline testing. |
+| **Voice Activity Detection** | **Silero VAD** | 20ms frame evaluation, 80ms speech trigger for instant barge-in response cancellation, and 400ms silence timeout for end-of-speech turnaround. |
+| **Text-to-Speech (TTS)** | **Cartesia Sonic / ElevenLabs** | Low-latency streaming TTS coupled with `SentenceAggregator` chunking sentences at punctuation marks so audio begins playing while subsequent sentences are being generated. |
+| **LLM Reasoning** | **OpenAI (`gpt-4o-mini`) & Gemini (`gemini-1.5-flash`)** | Dual-provider abstraction (`BaseLLMProvider`) with tool execution loops bounded at 3 turns, strict anti-hallucination boundaries, and deterministic mock providers. |
+| **Vector Search & RAG** | **PostgreSQL `pgvector`** | 384-dimensional dense embeddings with cosine similarity distance (`<=>`), eliminating separate vector DB hosting and ensuring transactional deletion cascades. |
+| **Frontend UI** | **Vanilla HTML5, CSS3, ES6+ JS** | Dedicated White-and-Violet role-based workspaces (`admin.html`, `receptionist-portal.html`, `sales.html`, `login.html`, `receptionist.html`) with zero npm build steps. |
+| **Browser Audio Engine** | **Web Audio API AudioWorklet** | `pcm-processor.js` runs on a dedicated Web Audio rendering thread, capturing microphone input and playing synthesized speech without UI-thread jitter. |
 
 ---
 
 ## 3. Real-Time Voice Streaming Subsystem
 
-Turnaround latency is the single most critical quality metric of a voice agent. Human conversational cadence expects responses within 500–800ms. A linear request-response architecture (Listen $\to$ Transcribe $\to$ Generate $\to$ Speak) introduces unacceptable delays of 2000–3500ms.
+Turnaround latency is the primary quality metric of an AI voice receptionist. A linear request-response architecture (Listen $\to$ Transcribe $\to$ Generate $\to$ Speak) introduces unacceptable delays of 2,000–3,500ms.
 
 FortiSales AI employs an **Asynchronous Pipelined Streaming Architecture**:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Caller as Caller / Telephony Gateway
-    participant WS as FastAPI WebSocket Gateway
-    participant VAD as Silero VAD (In-Memory Buffer)
-    participant STT as Streaming STT Engine
-    participant RAG as Vector Engine (pgvector)
-    participant LLM as Streaming LLM (Gemini / OpenAI)
-    participant TTS as Streaming TTS Engine
+    actor Caller as Customer / Browser
+    participant Gateway as WebSocket Voice Gateway
+    participant VAD as Silero VAD
+    participant STT as Deepgram Streaming STT
+    participant Orchestrator as Conversation Orchestrator
+    participant RAG as pgvector Knowledge Base
+    participant TTS as Cartesia Streaming TTS
 
-    Caller->>WS: Audio Chunks (PCM 16kHz, 20ms frames)
-    WS->>VAD: Analyze Audio Frame
-    Note over VAD: Voice Detected -> Accumulate
-    Caller->>WS: End of Utterance (Silence > 350ms)
-    VAD->>WS: Utterance Complete Trigger
-    WS->>STT: Finalize Speech Chunk
-    STT-->>WS: Final Transcript Text
+    Caller->>Gateway: Connect wss://.../voice/stream?ticket=tkt_...
+    Gateway->>Gateway: Authenticate Ticket via Redis GETDEL (4401 on failure)
+    Gateway-->>Caller: Send Connection Ready JSON
 
-    par Parallel Intent & Context
-        WS->>RAG: Async Vector Similarity Search (Company KB)
-        RAG-->>WS: Relevant Chunks (<120ms)
-    and Session History
-        WS->>WS: Fetch last 6 turns from Redis (<5ms)
+    loop Audio Streaming
+        Caller->>Gateway: Stream 20ms PCM16 Frames (640 bytes)
+        Gateway->>VAD: Feed Frame (Energy Evaluation)
+        Gateway->>STT: Forward Frame to Deepgram
+        VAD-->>Gateway: Speech Ongoing
     end
 
-    WS->>LLM: Stream Prompt (System + RAG + History + Input)
-    activate LLM
-    LLM-->>WS: First Token Yielded (<300ms)
+    VAD-->>Gateway: Silence Detected (>400ms threshold)
+    STT-->>Orchestrator: Final Customer Utterance Transcript
 
-    loop Sentence-Boundary Token Accumulation
-        LLM-->>WS: Stream Tokens ("Hello, ", "thank you for calling...")
-        WS->>TTS: Stream Completed Clause / Sentence
-        TTS-->>WS: Stream Synthesized Audio Packets (<200ms)
-        WS-->>Caller: Play Audio Packet Stream to Caller
-    end
-    deactivate LLM
-```
-
-### Barge-In / Interruption Handling Mechanics:
-1. While the AI is playing synthesized audio to the caller, the client/telephony stream continues streaming caller audio to FastAPI.
-2. If `Silero VAD` detects caller voice energy above a dynamic threshold for $>180\text{ms}$ while the system state is `SPEAKING`:
-   - FastAPI instantly sends a `STOP_AUDIO` control frame to the client/caller to mute and flush local playback buffers.
-   - The active LLM stream task and TTS synthesis task are canceled via `asyncio.Task.cancel()`.
-   - The system state transitions to `LISTENING`, and the incoming audio is redirected into the active transcription accumulator.
-
----
-
-### 3.2 AI Conversation Engine & Tool Registry Architecture (Stage 3)
-
-The AI conversation layer abstracts LLM interactions and orchestrates secure, context-aware dialogue:
-
-```mermaid
-flowchart TD
-    Client["Client / Telephony Gateway"] --> Orch["ConversationOrchestrator"]
-    Orch --> PM["PromptManager (Tenant Profile, Hours, Guardrails)"]
-    Orch --> CM["ContextManager (Sliding Window, Token Pruning, Summarization)"]
-    Orch --> Factory["LLM Provider Factory"]
-    Factory --> LLM["BaseLLMProvider (OpenAI / Google Gemini via Async REST)"]
-    LLM -- Function Call --> TR["ToolRegistry (Policy, Timeout, Tenant Check)"]
-    TR --> Tools["Initial Demonstrable Tools (Business Info, Hours, Availability, Handoff)"]
-    Tools --> TR
-    TR --> LLM
-    LLM -- Text Output --> Orch
-    Orch --> Extractor["Structured Intent Extractor"]
-    Orch --> DB[(PostgreSQL 16: Conversations, Messages, Calls)]
-```
-
-#### Key Architecture Components:
-1. **Provider Abstraction Layer (`backend/app/ai/providers/`)**:
-   - `BaseLLMProvider`: Defines common interface `generate_response()` and `stream_response()` accepting typed `ChatMessage` and `ToolDefinition`.
-   - Standardized `LLMResponse` encapsulating generated text, tool calls, and usage metrics.
-   - Decoupled REST implementations for OpenAI (`OpenAIProvider`) and Google Gemini (`GeminiProvider`) using `httpx.AsyncClient` with zero SDK dependency conflicts.
-   - Centralized `get_ai_provider()` factory dynamically resolving providers from tenant and system configuration.
-
-2. **Secure Backend-Controlled Tool Registry (`backend/app/ai/tools/`)**:
-   - `ToolRegistry` enforces schema validation using Pydantic, execution timeouts, and tenant boundary verification.
-   - `ToolExecutionContext` delivers authenticated `org_id`, `conversation_id`, and `db` session directly to tools. The model cannot bypass tenant boundaries or forge tenant IDs.
-   - Safe initial demonstrable tools: `get_business_information`, `get_business_hours`, `get_ai_availability`, `request_human_handoff`.
-
-3. **Multi-Turn Dialogue Orchestration (`backend/app/ai/conversation/orchestrator.py`)**:
-   - Validates session state, ensuring closed (`completed`, `abandoned`) conversations reject new messages.
-   - Loads bounded dialogue history and progressive summary via `ContextManager`.
-   - Injects dynamic business-aware system prompts via `PromptManager`.
-   - Manages tool call loop (max 5 tool turns per step) with automated error reporting back to the LLM.
-   - Persists all caller and agent turns atomically to PostgreSQL.
-   - Performs structured intent, category, sentiment, and urgency extraction.
-
-4. **Progressive Summarization & Memory Management (`backend/app/ai/conversation/context_manager.py`)**:
-   - Sliding history window restricted to the most recent `CONVERSATION_HISTORY_LIMIT` (default 10) messages.
-   - Summarization triggers when history length exceeds `CONVERSATION_SUMMARY_THRESHOLD` (default 8) turns, maintaining long-running dialogue continuity without exceeding context limits.
-
----
-
-### 3.3 Real-Time Voice Gateway & Session Management (Sub-Stage 4.1)
-
-Sub-Stage 4.1 establishes the secure bidirectional communication infrastructure connecting the browser to the backend voice pipeline:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Browser as Browser / Staff Console
-    participant REST as FastAPI REST Gateway
-    participant Redis as Redis / Token Store
-    participant WS as WebSocket Gateway (/voice/stream)
-    participant VSM as VoiceSessionManager
-    participant DB as PostgreSQL 16
-
-    Browser->>REST: POST /api/v1/voice/tickets (Bearer JWT)
-    REST->>REST: Verify JWT & extract user_id, org_id
-    REST->>Redis: Store SHA-256(ticket) with 30s TTL
-    REST-->>Browser: { ticket, expires_in: 30, websocket_url }
-
-    Browser->>WS: WebSocket Connect (Origin header)
-    WS->>WS: Validate Origin against CORS_ORIGINS
-    WS-->>Browser: Accept Connection
-    Browser->>WS: { type: "auth", ticket: "..." } (First-Frame Auth)
-    WS->>Redis: Atomic GETDEL SHA-256(ticket)
-    Redis-->>WS: TicketData { org_id, user_id, conversation_id }
-    Note over WS: Bind TenantContext(org_id)
-
-    WS->>VSM: get_or_create_session(org_id, user_id, conversation_id)
-    VSM->>DB: Atomic point-in-time tx: create Call (consent=False) & Conversation
-    DB-->>VSM: call_id, conversation_id
-    VSM-->>WS: VoiceSession (State: ACTIVE, Generation: 1)
-    WS-->>Browser: { type: "session_created", session_id, call_id, conversation_id }
-
-    loop Audio Streaming (PCM 16kHz, 20ms frames = 640 bytes)
-        Browser->>WS: Binary audio frames (640 bytes)
-        WS->>VSM: Enqueue frame to ring buffer (bounded to 250 frames)
+    rect rgb(245, 243, 255)
+        Note over Orchestrator,RAG: AI Generation & Tool Loop
+        Orchestrator->>RAG: Query Vector Embeddings & Product Catalog
+        RAG-->>Orchestrator: Return Verified Facts & Prices
+        Orchestrator->>Orchestrator: Execute Tool Calls (Availability, Catalog, etc.)
     end
 
-    alt Clean User Hangup
-        Browser->>WS: { type: "end_session", reason: "user_hangup" }
-        WS->>VSM: terminate_session(session_id, reason="user_hangup")
-        VSM->>DB: Atomic point-in-time tx: update Call status="completed", end_time, duration
-        WS-->>Browser: { type: "session_ended", duration_seconds, reason }
-        WS->>WS: Close code 1000
-    else Unexpected Network Disconnect
-        WS->>VSM: handle_disconnect(session_id) -> State: RECOVERABLE_DISCONNECT
-        VSM->>VSM: Start 30s recovery timer (generation-checked)
-        opt Reconnect within 30s
-            Browser->>WS: Reconnect with new ticket + existing conversation_id
-            WS->>VSM: Resumes session, bumps generation, cancels timer
-        end
-        opt Recovery window expires without reconnect
-            VSM->>DB: Atomic point-in-time tx: mark Call status="dropped", duration
-            VSM->>VSM: Transition state to TERMINATED
-        end
+    loop Sentence Streaming
+        Orchestrator->>TTS: Stream Sentence Chunks (SentenceAggregator)
+        TTS-->>Gateway: Return Synthesized PCM16 Audio Frames
+        Gateway-->>Caller: Stream Audio Frames to AudioWorklet
     end
-    Note over WS: Clear TenantContext in finally block
-```
 
-#### Key Gateway Guarantees:
-1. **Single-Use Cryptographic Ticket Auth**:
-   - Tickets are generated with 256 bits of cryptographically secure random entropy (`secrets.token_urlsafe(32)`).
-   - Only the SHA-256 digest is stored in Redis (or in-memory fallback) with an aggressive 30-second TTL.
-   - Atomic consumption (`GETDEL`) ensures immediate single-use enforcement, rendering replay attacks impossible.
-   - Eliminates JWT leakage in browser URLs, query parameters, and intermediary server access logs.
-2. **Strict Origin Validation**:
-   - WebSockets enforce host and origin matching against `settings.CORS_ORIGINS`.
-   - Unauthorized origins are rejected immediately with close code `4403`.
-3. **TenantContext Lifecycle Enforcement**:
-   - Tenant context is set immediately upon ticket validation and cleared in a strict ASGI `try...finally` block across all exit paths (normal closure, client drop, or exception).
-4. **Point-in-Time Database Transactions**:
-   - The WebSocket gateway never holds open database transactions during active streaming.
-   - Database operations (Call/Conversation creation, hangup completion, disconnect dropping) are performed in short-lived, atomic point-in-time sessions.
-5. **Session Generation Protection**:
-   - When a connection reconnects to an existing conversation, `session.generation` increments monotonically.
-   - Any prior or concurrent connection attempting to stream to the same session is invalidated and closed with code `4409 (Conflict)`.
-
----
-
-## 4. Concurrent Call Processing & Session Isolation
-
-To guarantee that multiple simultaneous calls never leak state, cross-talk, or monopolize system threads:
-
-1. **Independent WebSocket Connection Handlers**: Each incoming call initiates a distinct WebSocket connection handled by an isolated `asyncio.Task` coroutine in FastAPI.
-2. **Namespaced Redis Key Topology**:
-   - `call:session:{org_id}:{call_id}:meta`: Metadata (caller phone, start time, assigned department, caller identity).
-   - `call:session:{org_id}:{call_id}:turns`: Redis List of conversation turns (`role`, `content`, `timestamp`).
-   - `call:session:{org_id}:{call_id}:slots`: Extracted entity slots (name, requested service, date, budget).
-   - `call:session:{org_id}:{call_id}:lock`: Distributed lock for appointment slot reservation.
-3. **Session Lifecycle & TTL**: Every active session key is set with an initial TTL of 2 hours. Upon clean call termination or socket disconnect, keys are read for final summary generation and scheduled for automated deletion after 24 hours.
-
-```mermaid
-classDiagram
-    class CallSessionManager {
-        +create_session(call_id, org_id)
-        +append_message(call_id, role, text)
-        +get_recent_history(call_id, limit)
-        +update_slot(call_id, key, value)
-        +release_session(call_id)
-    }
-
-    class RedisSessionStore {
-        +Hash: meta
-        +List: turns
-        +Hash: slots
-        +String: state
-    }
-
-    class AudioPipelineCoordinator {
-        +vad_processor: SileroVAD
-        +stt_client: StreamingSTT
-        +llm_client: StreamingLLM
-        +tts_client: StreamingTTS
-        +handle_audio_in(frame)
-        +handle_barge_in()
-    }
-
-    CallSessionManager --> RedisSessionStore : Operates On
-    AudioPipelineCoordinator --> CallSessionManager : Updates Turn State
+    opt Caller Barge-In (Interruption)
+        Caller->>Gateway: Speaks during AI response
+        Gateway->>VAD: Speech Energy Detected (>80ms trigger)
+        VAD-->>Gateway: Fire Cancellation Event
+        Gateway->>Gateway: Abort Active TTS Playback & Clear Output Buffer
+        Gateway-->>Caller: Send {"type": "interrupted"}
+    end
 ```
 
 ---
 
-## 5. RAG Retrieval Architecture
+## 4. Multi-Tenant Security & Isolation Architecture
 
-To prevent LLM hallucination regarding pricing, product capabilities, or business policies:
-
-1. **Document Ingestion Pipeline**:
-   - Files (PDF, Markdown, TXT, DOCX) uploaded via Admin REST API.
-   - Cleaned, parsed, and split into recursive character chunks (500 tokens with 50-token overlap).
-   - Embedded using Sentence Transformers or OpenAI embeddings.
-   - Saved to PostgreSQL table `knowledge_chunks` with `vector(384)` or `vector(1536)` columns indexed via HNSW (`pgvector`).
-2. **Metadata-Filtered Querying**:
-   - Every vector query includes strict SQL filtering: `WHERE org_id = :org_id AND is_active = true AND (department_id = :dept_id OR department_id IS NULL)`.
-   - Top $k=3$ to $k=5$ chunks retrieved based on cosine similarity (`<=>` operator) with similarity score threshold ($>0.72$).
-3. **Grounded Prompt Injection**:
-   - Chunks are formatted as:
-     ```
-     [REFERENCE KNOWLEDGE]
-     Source: {title}
-     Content: {content}
-     ```
-   - Strict system prompt guardrail: *"You are an AI sales receptionist. Only answer questions using the facts provided in [REFERENCE KNOWLEDGE]. If the information is not present, politely inform the caller that you will have a specialist follow up with them."*
-
----
-
-## 6. Human Receptionist Takeover Subsystem
-
-When a caller requests a human, expresses severe frustration, or requests complex negotiation:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Caller as Caller
-    participant Core as Call Gateway (FastAPI)
-    participant Redis as Redis Pub/Sub
-    actor Staff as Human Receptionist / Sales Rep
-    participant AudioBridge as Audio Streaming Bridge
-
-    Caller->>Core: "Can I speak to a real person please?"
-    Core->>Core: Detect Intent: HUMAN_TRANSFER
-    Core->>Redis: Publish event `call.takeover.requested` {call_id, org_id, reason}
-    Redis->>Staff: Push notification via WebSocket to Staff Dashboard
-    Staff->>Staff: Review live transcript & customer card
-    Staff->>Core: Click "Accept Takeover" (API/WS command)
-    Core->>Caller: "Certainly. I am transferring you to our specialist right now."
-    Core->>Core: Detach AI LLM & TTS engines
-    Core->>AudioBridge: Connect Caller Audio Track <--> Staff Audio Track
-    Staff->>Caller: "Hello, this is Sarah from Sales. I have your details right in front of me..."
-    Note over Staff,Caller: Call proceeds with human agent. AI remains in passive listening mode for auto-summary.
-```
-
----
-
-## 7. Failure Modes & Graceful Degradation Matrix
-
-| Failure Point | Detection Mechanism | Immediate Fallback Action | Recovery / Mitigation |
-|---|---|---|---|
-| **STT Stream Disconnect** | WebSocket heartbeat drop / API error response | Send polite pause utterance ("Pardon me, could you repeat that?") and reconnect STT socket. | Automatic exponential backoff reconnection within 500ms. |
-| **LLM Rate Limit / 429** | HTTP 429 / Exception caught in LLM stream generator | Instantly route request to Secondary LLM (OpenAI $\leftrightarrow$ Gemini failover). | Circuit breaker trips for 60s if 3 consecutive failures occur. |
-| **RAG Retrieval Timeout (>400ms)** | `asyncio.wait_for(rag_query, timeout=0.4)` | Skip vector retrieval; generate conversational response asking the caller for contact details for follow-up. | Asynchronous metric logged; query queued for offline analysis. |
-| **TTS Synthesis Failure** | Stream exception or zero bytes returned within 300ms | Fall back to pre-recorded fallback audio clips ("One moment please, let me check that for you.") | Failover to alternate cloud TTS provider. |
-| **Database Connection Loss** | SQLAlchemy PoolTimeout / ConnectionRefused | Persist all active call state, transcripts, and leads to Redis persistent journal (AOF). | Background worker replays and writes journals to PostgreSQL once connection restores. |
-| **Caller Network Drop / Hang-up** | WebSocket close event (1000/1006) or Telephony BYE | Immediately finalize session, trigger Celery post-call summarization task, release locks. | Mark call record as `completed` with duration and final status. |
+1. **Context-Local Tenant Binding**:
+   - Inbound HTTP and WebSocket requests authenticate via JWT or voice ticket.
+   - `TenantContext` binds `org_id` using Python's `contextvars.ContextVar`. Every downstream service and query automatically inherits this tenant boundary without parameter passing.
+   - A global middleware clears `TenantContext` upon every request completion or exception.
+2. **Cryptographically Secure Single-Use Voice Tickets**:
+   - Browsers cannot securely send custom HTTP Authorization headers during standard WebSocket establishment.
+   - Clients obtain single-use 256-bit tickets via authenticated HTTPS `POST /api/v1/voice/tickets`.
+   - The ticket hash is saved in Redis with a 30-second TTL. The WebSocket gateway redeems the ticket atomically via `GETDEL`, guaranteeing single-use protection and immunity to replay attacks.
+3. **Database Concurrency Protection**:
+   - Appointments use a PostgreSQL GiST exclusion constraint (`no_overlapping_appointments`) combining `employee_id` and `tstzrange(start_time, end_time, '[)')`. Double-bookings are impossible at the database storage engine layer.

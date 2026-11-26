@@ -204,20 +204,20 @@ python -m pytest backend/tests/test_stage4_voice_gateway.py backend/tests/test_s
 ## 8. Troubleshooting Common Issues
 
 ### Issue 1: `Extension "vector" does not exist`
-**Cause**: The PostgreSQL server does not have the `pgvector` extension installed.  
+**Cause**: The PostgreSQL server does not have the `pgvector` extension installed.
 **Resolution**:
 - Windows: Download `pgvector` compiled DLLs for PostgreSQL 16 or use Docker: `docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=pass pgvector/pgvector:pg16`.
 - Linux: `sudo apt install postgresql-16-pgvector`.
 - Connect as superuser and execute: `CREATE EXTENSION IF NOT EXISTS vector;`.
 
 ### Issue 2: `Extension "btree_gist" does not exist`
-**Cause**: GiST exclusion constraints require `btree_gist` for non-interval columns (`employee_id`).  
+**Cause**: GiST exclusion constraints require `btree_gist` for non-interval columns (`employee_id`).
 **Resolution**:
 - `btree_gist` is included with standard PostgreSQL distributions.
 - Connect as superuser and run: `CREATE EXTENSION IF NOT EXISTS btree_gist;`.
 
 ### Issue 3: Redis warning on startup (`Redis unavailable for voice tickets; using in-memory dev fallback`)
-**Cause**: Redis is not running locally on port 6379.  
+**Cause**: Redis is not running locally on port 6379.
 **Resolution**:
 - This is an **informational warning** in development. The system automatically switches to thread-safe in-memory ticket storage.
 - If distributed multi-worker deployment is required, start local Redis: `redis-server` or `docker run -d -p 6379:6379 redis:7`.
@@ -228,7 +228,7 @@ python -m pytest backend/tests/test_stage4_voice_gateway.py backend/tests/test_s
 - `4403 Forbidden`: Origin header does not match authorized application origins. Ensure you are accessing via `http://localhost:8000` or configured origins.
 
 ### Issue 5: Port 8000 Conflict
-**Cause**: Another service is running on port 8000.  
+**Cause**: Another service is running on port 8000.
 **Resolution**:
 ```powershell
 # Find conflicting process
@@ -238,7 +238,7 @@ uvicorn backend.app.main:app --reload --port 8080
 ```
 
 ### Issue 6: PowerShell script execution blocked
-**Cause**: Windows Restricted execution policy prevents virtual environment activation.  
+**Cause**: Windows Restricted execution policy prevents virtual environment activation.
 **Resolution**:
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass

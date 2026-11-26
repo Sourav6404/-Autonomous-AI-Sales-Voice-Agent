@@ -1,281 +1,225 @@
 # FortiSales AI – System Workflows & Operational Sequences
 
-This document details the seven end-to-end operational workflows governing FortiSales AI, accompanied by Mermaid sequence and flow diagrams.
+This document details the core operational workflows governing FortiSales AI, accompanied by Mermaid sequence and flowchart diagrams reflecting the actual implementation.
 
 ---
 
-## Workflow A: Inbound Call Lifecycle & Session Ingestion
+## Workflow A: Inbound Voice Call Lifecycle & AudioWorklet Ingestion
 
-**Scope**: Customer dials in $\to$ Customer identification $\to$ Call session instantiation $\to$ Voice conversation loop $\to$ Session finalization and transcript persistence.
+**Scope**: Browser/Telephony client connects $\to$ Ephemeral ticket redemption $\to$ Full-duplex WebSocket session $\to$ VAD framing $\to$ STT $\to$ LLM $\to$ Sentence-level TTS $\to$ Call persistence.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Caller as Inbound Caller
-    participant Telephony as Telephony Gateway (Twilio/SIP)
-    participant WSGateway as FastAPI Call Gateway
-    participant Redis as Redis Session Cache
+    actor Caller as Caller (AudioWorklet)
+    participant API as FastAPI REST Gateway
+    participant Redis as Redis Ticket Cache
+    participant WSGateway as WebSocket Voice Gateway
+    participant VAD as Silero VAD
+    participant STT as Deepgram Nova-2
+    participant Orchestrator as Conversation Orchestrator
+    participant TTS as Cartesia/ElevenLabs TTS
     participant DB as PostgreSQL DB
-    participant Celery as Celery Async Worker
 
-    Caller->>Telephony: Inbound Voice Call
-    Telephony->>WSGateway: Establish WebSocket Connection (CallSID, CallerPhone, DID)
-    WSGateway->>DB: Query Customer by Phone (org_id, caller_phone)
-    alt Customer Exists
-        DB-->>WSGateway: Return Customer Record (Name, History, Notes)
-    else New Customer
-        WSGateway->>DB: Create Customer Record (CallerPhone, Status=New)
-        DB-->>WSGateway: Return New Customer ID
+    Caller->>API: POST /api/v1/voice/tickets (Bearer JWT)
+    API->>Redis: Set Ticket Hash (TTL=30s)
+    API-->>Caller: Return Raw Ticket String (tkt_...)
+
+    Caller->>WSGateway: Connect /api/v1/voice/stream?ticket=tkt_...
+    WSGateway->>Redis: GETDEL voice_ticket:{hash}
+    alt Ticket Invalid or Expired
+        WSGateway-->>Caller: Close 4401 Unauthorized
+    else Origin Forbidden
+        WSGateway-->>Caller: Close 4403 Forbidden
+    else Ticket Valid
+        WSGateway->>DB: Insert `calls` (status='in_progress')
+        WSGateway->>DB: Insert `conversations` (status='active')
+        WSGateway-->>Caller: Send Connection Ready JSON
     end
 
-    WSGateway->>DB: Insert `calls` Record (Status='in_progress', StartedAt=NOW)
-    DB-->>WSGateway: Return `call_id`
-
-    WSGateway->>Redis: Initialize Session `call:session:{org_id}:{call_id}` (Customer Profile, Empty Turns)
-    WSGateway->>Telephony: Send Initial Greeting TTS ("Hello, thank you for calling Acme Corp...")
-
-    loop Conversational Turns
-        Telephony->>WSGateway: Stream Inbound Audio Frames
-        WSGateway->>WSGateway: Process VAD + STT + LLM + TTS
-        WSGateway-->>Telephony: Stream Outbound Audio Chunks
-        WSGateway->>Redis: Append Turn (Role, Message, Sentiment, Latency)
+    loop Dialogue Turns
+        Caller->>WSGateway: Stream 20ms PCM16 Frames (640 bytes)
+        WSGateway->>VAD: Evaluate Speech Energy
+        WSGateway->>STT: Forward Audio Buffer
+        VAD-->>WSGateway: Speech Ended (>400ms silence)
+        STT-->>Orchestrator: Deliver Utterance Transcript
+        Orchestrator->>TTS: Stream Sentence Token Chunks
+        TTS-->>WSGateway: Synthesized Audio Frames
+        WSGateway-->>Caller: Audio Frames to AudioWorklet
     end
 
-    Caller->>Telephony: Hangs Up Call
-    Telephony->>WSGateway: WS Disconnect / Event: 'stop'
-    WSGateway->>DB: Update `calls` (Status='completed', EndedAt=NOW, Duration=TotalSeconds)
-    WSGateway->>Celery: Enqueue `tasks.process_post_call(call_id)`
-    WSGateway->>Redis: Set Session Expiry (TTL=24 hours)
-
-    Celery->>Redis: Fetch Full Call Turns & Slot Metadata
-    Celery->>DB: Batch Insert `conversations` and `messages`
-    Celery->>Celery: Run LLM Call Summarization & Lead Scoring
-    Celery->>DB: Insert `call_summaries`
+    Caller->>WSGateway: Disconnects / Hangs Up
+    WSGateway->>DB: Update `calls` (status='completed', duration_seconds=N)
+    WSGateway->>DB: Auto-create `leads` (if qualified)
+    WSGateway->>DB: Commit Session State
 ```
 
 ---
 
-## Workflow B: Customer Knowledge Enquiry & RAG Retrieval
+## Workflow B: Customer Knowledge Inquiry & pgvector RAG Retrieval
 
-**Scope**: Caller asks a complex factual question (pricing, SLA, tech specs) $\to$ Semantic retrieval $\to$ Guardrailed LLM synthesis $\to$ Audible delivery.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Caller as Caller
-    participant AudioCore as Audio Pipeline (FastAPI)
-    participant Embedder as Sentence Transformer / Embeddings API
-    participant VectorDB as PostgreSQL (pgvector)
-    participant LLM as Streaming LLM (Gemini 1.5 Flash)
-    participant TTS as Streaming TTS (Cartesia)
-
-    Caller->>AudioCore: "What is your refund policy and do you offer monthly billing?"
-    AudioCore->>AudioCore: VAD End-of-Utterance Detected
-    AudioCore->>Embedder: Generate Query Embedding Vector (384/1536 dim)
-    Embedder-->>AudioCore: Vector Float Array
-
-    AudioCore->>VectorDB: Query Cosine Similarity (<=> distance) with Org Filter
-    Note over VectorDB: SELECT chunk_content FROM knowledge_chunks<br/>WHERE org_id = :org_id AND distance < 0.28<br/>ORDER BY distance LIMIT 3;
-    VectorDB-->>AudioCore: Top 3 Grounded Knowledge Chunks
-
-    AudioCore->>LLM: Stream System Prompt + Grounded Chunks + Dialog History + User Query
-    Note over LLM: Groundedness Guardrail Active:<br/>Synthesize answer solely from chunks.<br/>If unmentioned, state specialist required.
-
-    loop Stream Response
-        LLM-->>AudioCore: Stream Tokens
-        AudioCore->>TTS: Stream Sentence Clauses
-        TTS-->>AudioCore: Synthesized Audio Chunks
-        AudioCore-->>Caller: Stream Audio to Ear
-    end
-```
-
----
-
-## Workflow C: Conversational Lead Qualification & CRM Extraction
-
-**Scope**: The AI receptionist conversationally gathers customer criteria, executes scoring, updates customer records, and triggers sales notifications.
+**Scope**: Caller asks a company question (pricing, policies, services) $\to$ Semantic retrieval $\to$ Catalog precedence enforcement $\to$ Spoken response.
 
 ```mermaid
 flowchart TD
-    Start([Caller Engaged in Sales Conversation]) --> ExtractUtterance[Parse Caller Utterance]
-    ExtractUtterance --> SlotFilling{Contains Qualification Data?}
+    Question([Caller Asks Question]) --> Orchestrator[Conversation Orchestrator]
+    Orchestrator --> IntentCheck{Inquiry Type?}
 
-    SlotFilling -- Budget Mentioned --> UpdateBudget[Update Slot: Budget Range]
-    SlotFilling -- Authority Mentioned --> UpdateAuth[Update Slot: Decision Maker Flag]
-    SlotFilling -- Need Mentioned --> UpdateNeed[Update Slot: Core Pain Points]
-    SlotFilling -- Timeline Mentioned --> UpdateTime[Update Slot: Purchase Timeline]
-    SlotFilling -- General Chit-Chat --> ContinueConv[Continue Conversational Flow]
+    IntentCheck -->|Pricing / Service Spec| ToolCatalog[Execute: get_product_or_service_details]
+    IntentCheck -->|Policies / FAQs / General| ToolRAG[Execute: query_knowledge_base]
 
-    UpdateBudget & UpdateAuth & UpdateNeed & UpdateTime --> RedisSync[Sync Dynamic Slots to Redis]
-    RedisSync --> EvaluateScore[Calculate Real-Time BANT Score 0-100]
+    ToolCatalog --> CatalogDB[(products_services Table)]
+    CatalogDB --> PricingRule{Structured Price Found?}
+    PricingRule -->|Yes| Override[Confirmed Catalog Price Enforced]
+    PricingRule -->|No| FallbackToRAG[Query Vector Knowledge Chunks]
 
-    EvaluateScore --> ThresholdCheck{Score >= 70?}
-    ThresholdCheck -- Yes --> MarkHot[Tier = HOT Lead]
-    ThresholdCheck -- 40 to 69 --> MarkWarm[Tier = WARM Lead]
-    ThresholdCheck -- < 40 --> MarkCold[Tier = COLD / Unqualified]
+    ToolRAG --> VectorDB[(knowledge_chunks Table)]
+    VectorDB --> CosineSearch[Execute 384-dim Cosine Distance: <=>]
+    CosineSearch --> TopChunks[Retrieve Top 3 Chunks > 0.70 Similarity]
 
-    MarkHot --> ProposeMeeting[AI Prompt: Proactively Suggest Booking Demo]
-    MarkWarm --> ProposeMeeting
-    MarkCold --> OfferGeneralInfo[AI Prompt: Offer Collateral / Email Follow-up]
+    Override --> LLMSynthesis[LLM Response Generation]
+    TopChunks --> LLMSynthesis
+    FallbackToRAG --> VectorDB
 
-    ProposeMeeting --> CallEnd([Call Ends])
-    OfferGeneralInfo --> CallEnd
-
-    CallEnd --> CeleryPostProcess[Celery Task: Ingest Lead into CRM]
-    CeleryPostProcess --> DBInsert[Insert/Update `leads` and `customers` Tables]
-    DBInsert --> AssignRep[Assign Round-Robin Sales Representative]
-    AssignRep --> CreateTask[Generate `follow_up_tasks` for Sales Rep]
+    LLMSynthesis --> GuardrailCheck{Facts in Context?}
+    GuardrailCheck -->|Yes| SpokenOutput[Stream Sentence-Level TTS to Caller]
+    GuardrailCheck -->|No| HonestDecline["Honestly Admit Unknown & Offer Specialist Follow-Up"]
+    HonestDecline --> SpokenOutput
 ```
 
 ---
 
-## Workflow D: Real-Time Appointment Scheduling & Slot Collision Guard
+## Workflow C: Autonomous Lead Qualification, Scoring & CRM Pipeline
 
-**Scope**: Customer requests a demo/meeting $\to$ Evaluate working hours, holidays, and employee calendars $\to$ Propose available times $\to$ Confirm with atomic database lock.
+**Scope**: Customer dialogue turns $\to$ Turn intelligence extraction $\to$ Lead scoring (0–100) $\to$ Tiering $\to$ CRM lead creation $\to$ Sales rep isolation.
+
+```mermaid
+flowchart LR
+    TurnTranscript[Spoken Dialogue Turn] --> TurnExtractor[Orchestrator Turn Intelligence]
+    TurnExtractor --> BANT["Extract Budget, Authority, Need, Timeline"]
+    BANT --> LeadScorer["Calculate Score (0-100)"]
+
+    LeadScorer --> TierDecision{Score Tier}
+    TierDecision -->|Score >= 70| HotTier["Hot Lead (Immediate Priority)"]
+    TierDecision -->|Score 40-69| WarmTier["Warm Lead (Follow-up 24h)"]
+    TierDecision -->|Score < 40| ColdTier["Cold Lead (Nurture)"]
+
+    HotTier --> LeadInsert[Insert/Update `leads` in PostgreSQL]
+    WarmTier --> LeadInsert
+    ColdTier --> LeadInsert
+
+    LeadInsert --> CallEnd{Call Concluded?}
+    CallEnd -->|Yes| AdminAssign[Admin Assigns Lead to Sales Employee]
+    AdminAssign --> SalesRepPortal[Sales Rep Workspace: /sales-dashboard]
+    SalesRepPortal --> IsolationCheck{Cross-Rep Isolation}
+    IsolationCheck -->|Assigned Rep| FullAccess[View Lead & Schedule Discovery]
+    IsolationCheck -->|Other Rep| Forbidden[Access Blocked: 403 Forbidden]
+```
+
+---
+
+## Workflow D: Conflict-Free Appointment Booking with GiST Exclusion
+
+**Scope**: Customer requests booking $\to$ Availability check $\to$ Customer confirmation $\to$ Atomic booking protected by PostgreSQL GiST exclusion constraint.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Caller as Caller
-    participant AI as AI Receptionist (FastAPI)
-    participant ScheduleService as Scheduling Service
-    participant Redis as Redis Lock Manager
+    actor Caller as Customer
+    participant Orchestrator as AI Receptionist
+    participant ApptTool as Appointment Tools
+    participant AvailService as Availability Engine
+    participant BookService as Booking Service
+    participant DB as PostgreSQL 16 (btree_gist)
+
+    Caller->>Orchestrator: "I'd like to book an appointment this Friday at 10 AM"
+    Orchestrator->>ApptTool: check_appointment_availability(date="2026-11-27", employee_id)
+    ApptTool->>AvailService: Evaluate Operating Hours, Holidays, Overlaps
+    AvailService-->>ApptTool: Slot Available (10:00 - 10:30 AM)
+    ApptTool-->>Orchestrator: Available
+    Orchestrator-->>Caller: "I have 10:00 AM available on Friday. Shall I confirm this booking?"
+    Caller->>Orchestrator: "Yes, please confirm it."
+
+    rect rgb(245, 243, 255)
+        Note over Orchestrator,DB: Atomic Booking & Concurrency Guard
+        Orchestrator->>ApptTool: book_appointment(customer_confirmed=True)
+        ApptTool->>BookService: Execute Booking inside Async Transaction
+        BookService->>DB: Immediate Revalidation Query
+        BookService->>DB: INSERT INTO appointments ...
+        alt Slot Free
+            DB-->>BookService: 201 Created (Appointment Locked)
+            BookService-->>Orchestrator: Booking Confirmed
+            Orchestrator-->>Caller: "Your appointment is confirmed for Friday at 10:00 AM!"
+        else Concurrent Conflict (Race Condition)
+            DB-->>BookService: Raise IntegrityError: ExclusionConstraintViolation
+            BookService-->>Orchestrator: 409 Conflict (Slot Taken)
+            Orchestrator-->>Caller: "I apologize, that slot was just booked. May I offer 11:00 AM instead?"
+        end
+    end
+```
+
+---
+
+## Workflow E: Live Human Handoff & Receptionist Takeover
+
+**Scope**: Customer requests human $\to$ Tool execution $\to$ Session escalation $\to$ Real-time queue alert in receptionist portal $\to$ Staff takeover.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Caller as Customer
+    participant WSGateway as Voice Gateway
+    participant Orchestrator as Conversation Orchestrator
+    participant HandoffTool as request_human_handoff Tool
     participant DB as PostgreSQL DB
+    actor Receptionist as Receptionist Staff
+    participant RecPortal as Receptionist Portal (/receptionist-dashboard)
 
-    Caller->>AI: "Can I schedule a product demo for this Thursday afternoon?"
-    AI->>ScheduleService: Query Availability(Date='2026-11-26', TimeRange='afternoon')
-    ScheduleService->>DB: Check `business_hours` & `holidays` for Thursday
-    Note over DB: Verify Thursday is open & not a company holiday
-    ScheduleService->>DB: Query `employees` matching sales department
-    ScheduleService->>DB: Query existing `appointments` for Thursday afternoon
-    ScheduleService-->>AI: Available Slots: 14:00-14:30, 15:00-15:30
+    Caller->>WSGateway: "Can I speak to a real person please?"
+    WSGateway->>Orchestrator: User Transcript
+    Orchestrator->>Orchestrator: Intent Extraction: needs_human_intervention=True
+    Orchestrator->>HandoffTool: Execute request_human_handoff(urgency='high')
 
-    AI-->>Caller: "I have openings this Thursday at 2:00 PM or 3:00 PM Eastern. Which works best for you?"
-    Caller->>AI: "Let's do 2:00 PM."
+    HandoffTool->>DB: Update `conversations` (status='handed_off')
+    HandoffTool->>DB: Update `calls` (status='handed_off', outcome='handed_off')
+    HandoffTool->>DB: Insert `inquiries` (status='open', priority='high')
+    HandoffTool->>DB: Update `leads` (qualification_tier='hot')
+    HandoffTool-->>Orchestrator: Handoff Queued (ticket_id="ESC-...")
+    Orchestrator-->>Caller: "I have escalated your call to our representative team..."
 
-    AI->>Redis: Acquire Distributed Lock `lock:appointment:{emp_id}:2026-11-26T14:00` (TTL 30s)
-    alt Lock Acquired
-        AI->>DB: Begin Transaction
-        AI->>DB: Insert into `appointments` (Status='scheduled', Start='14:00', End='14:30')
-        Note over DB: PostgreSQL GiST Exclusion Constraint validates no overlap
-        AI->>DB: Commit Transaction
-        AI->>Redis: Release Distributed Lock
-        AI-->>Caller: "You're all set! I have booked your product demo for this Thursday at 2:00 PM. A calendar invite has been sent to your email."
-    else Lock Failed (Slot Just Taken)
-        AI-->>Caller: "I apologize, that 2:00 PM slot was just reserved. Would 3:00 PM work for you instead?"
-    end
+    RecPortal->>DB: Poll /api/v1/conversations/handoffs (or real-time update)
+    RecPortal-->>Receptionist: Red Handoff Badge Increments (1 Pending)
+    Receptionist->>RecPortal: Clicks "Take Over Call"
+    RecPortal->>DB: POST /api/v1/conversations/{id}/takeover
+    DB-->>RecPortal: Updated Call (taken_over_by_employee_id=Staff ID)
+    RecPortal-->>Receptionist: Status Updated: "Taken Over" (Staff in Control)
 ```
 
 ---
 
-## Workflow E: Human Receptionist Takeover & Call Transfer
+## Workflow F: Resilient AI Model Outage Fallback
 
-**Scope**: Caller frustration or specific request for a human $\to$ Alert staff via WebSocket $\to$ Audio bridge transition $\to$ Real-time context handover.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Caller as Caller
-    participant Gateway as FastAPI Call Gateway
-    participant MonitorWS as Live Monitor Hub
-    actor Staff as Human Receptionist / Sales Rep
-    participant AudioBridge as WebRTC / SIP Audio Bridge
-
-    Caller->>Gateway: "I want to speak with a human supervisor right now."
-    Gateway->>Gateway: Intent Detected: ESCALATION_REQUEST
-    Gateway-->>Caller: "I understand. Let me transfer you directly to one of our specialists. Please stay on the line."
-
-    Gateway->>MonitorWS: Broadcast Event `call.escalation` {call_id, customer_name, urgency="high"}
-    MonitorWS-->>Staff: Sound Audio Chime & Flash Banner on Dashboard
-    Staff->>MonitorWS: Click "Review & Accept Call"
-
-    MonitorWS->>Gateway: Command `takeover_approved` {employee_id: "emp_123"}
-    Gateway->>Gateway: Pause AI LLM & Mute TTS Engine
-    Gateway->>AudioBridge: Route Caller Audio Track to Staff WebRTC Endpoint
-    Gateway->>AudioBridge: Route Staff Audio Track to Caller Inbound Stream
-
-    Staff-->>Caller: "Hello! This is Alex from customer relations. I have your call history right in front of me. How can I assist you today?"
-
-    Note over Gateway: Call status updated to `handed_off`.<br/>AI pipeline continues passive transcription in background.
-```
-
----
-
-## Workflow F: Multiple Simultaneous Calls on Shared AI Infrastructure
-
-**Scope**: High concurrency scenario $\to$ N simultaneous incoming calls $\to$ Isolated state machines $\to$ Shared connection pools and worker queues.
-
-```mermaid
-flowchart TB
-    subgraph InboundTraffic ["Inbound Traffic Pool"]
-        Call1["Call 1 (Org A, Customer 1)"]
-        Call2["Call 2 (Org A, Customer 2)"]
-        CallN["Call N (Org B, Customer X)"]
-    end
-
-    subgraph FastAPIGateways ["FastAPI Async WebSocket Pool"]
-        Handler1["asyncio.Task: Call 1 Handler"]
-        Handler2["asyncio.Task: Call 2 Handler"]
-        HandlerN["asyncio.Task: Call N Handler"]
-    end
-
-    subgraph RedisState ["Redis Memory Isolation"]
-        Session1[("call:session:OrgA:Call1<br/>- VAD Buffer<br/>- Turns 1..k<br/>- Slots")]
-        Session2[("call:session:OrgA:Call2<br/>- VAD Buffer<br/>- Turns 1..m<br/>- Slots")]
-        SessionN[("call:session:OrgB:CallN<br/>- VAD Buffer<br/>- Turns 1..j<br/>- Slots")]
-    end
-
-    subgraph AIWorkerPool ["Shared AI Infrastructure (Managed Rate-Limited Queues)"]
-        SemSTT["STT Semaphore Pool (Max 200 concurrent streams)"]
-        SemLLM["LLM Token Stream Multiplexer (Async Client Session)"]
-        SemTTS["TTS Synthesis Engine (Zero-Copy HTTP/2 Stream)"]
-    end
-
-    Call1 <--> Handler1
-    Call2 <--> Handler2
-    CallN <--> HandlerN
-
-    Handler1 <--> Session1
-    Handler2 <--> Session2
-    HandlerN <--> SessionN
-
-    Handler1 & Handler2 & HandlerN --> SemSTT
-    Handler1 & Handler2 & HandlerN --> SemLLM
-    Handler1 & Handler2 & HandlerN --> SemTTS
-```
-
----
-
-## Workflow G: Holiday & Business Closure Availability Handling
-
-**Scope**: Incoming call arrives $\to$ System checks real-time availability rules $\to$ Routes to holiday greeting, emergency message, or customized after-hours handling.
+**Scope**: Upstream LLM provider timeout or 5xx outage $\to$ Graceful error catch $\to$ Safe customer turn recording $\to$ Session marked handed off $\to$ Polite spoken follow-up.
 
 ```mermaid
 flowchart TD
-    CallIn([Incoming Call Arrives]) --> FetchConfig[Fetch Organization Business Settings & Availability]
-    FetchConfig --> CheckEmergency{Emergency Closure Active?}
+    CustomerTurn[Customer Message Arrives] --> Orchestrator[Conversation Orchestrator]
+    Orchestrator --> LLMCall[Call active_provider.generate_response]
 
-    CheckEmergency -- Yes --> PlayEmergency[Play Emergency Announcement & Reason]
-    PlayEmergency --> LogVoicemail[Record Caller Voicemail / Callback Request]
-    LogVoicemail --> TerminateCall([Graceful Hangup])
+    LLMCall --> ProviderHealth{Provider Status}
+    ProviderHealth -->|Normal| ModelResponse[Process Model Reply & Tool Loop]
+    ProviderHealth -->|Timeout / 5xx Outage| ErrorCatch[Catch Exception: AIProviderTransientError]
 
-    CheckEmergency -- No --> CheckMasterToggle{AI Master Status == 'offline'?}
-    CheckMasterToggle -- Yes --> ForwardExternal[Forward Call to PSTN External Fallback Number]
-    ForwardExternal --> TerminateCall
+    ErrorCatch --> RollbackTx[Rollback Failed Transaction]
+    RollbackTx --> FreshTx[Open Clean Transaction]
 
-    CheckMasterToggle -- No --> CheckHoliday{Current Date in `holidays`?}
-    CheckHoliday -- Yes --> PlayHoliday[Speak Holiday Announcement & Reopening Date]
-    PlayHoliday --> OfferBooking[Offer Automated Appointment Booking for Reopen Date]
-    OfferBooking --> TerminateCall
+    FreshTx --> RecordCallerTurn[Insert `messages` speaker_role='caller']
+    RecordCallerTurn --> RecordFallbackTurn["Insert `messages` speaker_role='ai_agent' (Polite Apology)"]
+    RecordFallbackTurn --> UpdateHandoffState["Update `conversations` status='handed_off'"]
+    UpdateHandoffState --> UpdateCallRecord["Update `calls` status='handed_off', outcome='ai_fallback_handoff'"]
+    UpdateCallRecord --> CommitFallback[Commit Clean Transaction]
 
-    CheckHoliday -- No --> CheckHours{Current Time Within `business_hours`?}
-    CheckHours -- Yes --> OpenSession([Initiate Full Conversational AI Receptionist])
-
-    CheckHours -- No --> AfterHoursMode{Check `after_hours_behavior`}
-    AfterHoursMode -- 'ai_voicemail' --> VoicemailGreeting[AI: 'We are currently closed. Please leave a message.']
-    AfterHoursMode -- 'ai_general_info_only' --> LimitedSession[AI: Limit to FAQ & Appointment Booking Only]
-    AfterHoursMode -- 'forward_to_number' --> ForwardExternal
-
-    VoicemailGreeting --> LogVoicemail
-    LimitedSession --> OpenSession
+    CommitFallback --> ReturnTurnResponse["Return 200 OK Turn Response (status='handed_off')"]
+    ReturnTurnResponse --> QueueAlert[Handoff Appears in Receptionist Queue]
+    ReturnTurnResponse --> SpokenApology["Stream TTS: 'I apologize, experiencing difficulties. Representative will follow up promptly.'"]
 ```

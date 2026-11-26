@@ -7,11 +7,11 @@ This comprehensive guide prepares engineers, architects, and founders to present
 ## 1. Executive 2-Minute Elevator Pitch
 
 > "Traditional business phone trees and IVR menus frustrate customers with endless dial-pad options, while hiring round-the-clock sales receptionists is cost-prohibitive for most growing companies.
-> 
+>
 > **FortiSales AI** is an autonomous, enterprise-grade AI sales receptionist and CRM platform that answers inbound calls with natural, real-time voice under 500ms latency. Unlike generic chatbots, FortiSales AI is deeply grounded in each business's verified knowledge base using PostgreSQL `pgvector` RAG, ensuring it never invents pricing or policies.
-> 
+>
 > It autonomously qualifies sales leads, checks real-time staff availability, books conflict-free calendar appointments directly into PostgreSQL using mathematical exclusion constraints, and detects when a customer needs human attention—instantly escalating to staff with full conversational context.
-> 
+>
 > Built entirely in Python with FastAPI, PostgreSQL 16, and modern WebSockets, FortiSales AI delivers strict multi-tenant isolation, enterprise RBAC, and zero-external-cost local testing with deterministic mock providers."
 
 ---
