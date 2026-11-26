@@ -122,29 +122,41 @@ class CartesiaTTSService(BaseTTSService):
             },
         }
 
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                async with client.stream("POST", url, headers=headers, json=payload) as response:
-                    if response.status_code != 200:
-                        err_content = await response.aread()
-                        logger.error(
-                            "Cartesia TTS error (%s): %s", response.status_code, err_content
-                        )
-                        return False
-
-                    async for chunk in response.aiter_bytes(chunk_size=640):
-                        if cancellation_event.is_set():
-                            logger.info("Cartesia TTS synthesis cancelled via barge-in.")
+        max_tts_attempts = 3
+        for attempt in range(max_tts_attempts):
+            if cancellation_event.is_set():
+                return False
+            try:
+                async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+                    async with client.stream("POST", url, headers=headers, json=payload) as response:
+                        if response.status_code in (502, 503, 504) and attempt < max_tts_attempts - 1:
+                            logger.warning("Cartesia TTS %s on attempt %s. Retrying...", response.status_code, attempt + 1)
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+                        if response.status_code != 200:
+                            err_content = await response.aread()
+                            logger.error(
+                                "Cartesia TTS error (%s): %s", response.status_code, err_content[:200]
+                            )
                             return False
 
-                        if chunk:
-                            await on_audio_chunk(chunk)
-            return True
-        except asyncio.CancelledError:
-            return False
-        except Exception as e:
-            logger.error("Cartesia streaming TTS failed: %s", e)
-            return False
+                        async for chunk in response.aiter_bytes(chunk_size=640):
+                            if cancellation_event.is_set():
+                                logger.info("Cartesia TTS synthesis cancelled via barge-in.")
+                                return False
+
+                            if chunk:
+                                await on_audio_chunk(chunk)
+                return True
+            except asyncio.CancelledError:
+                return False
+            except Exception as e:
+                if attempt < max_tts_attempts - 1:
+                    logger.warning("Cartesia TTS network retry (%s): %s", attempt + 1, e)
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                logger.error("Cartesia streaming TTS failed: %s", e)
+                return False
 
 
 class ElevenLabsTTSService(BaseTTSService):
@@ -189,7 +201,7 @@ class ElevenLabsTTSService(BaseTTSService):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
                     if response.status_code != 200:
                         err_content = await response.aread()

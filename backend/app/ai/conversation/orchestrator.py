@@ -3,7 +3,7 @@
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -42,13 +42,18 @@ class ConversationOrchestrator:
         conversation_id: UUID,
         org_id: UUID,
         user_message_text: str,
-        provider: Optional[BaseLLMProvider] = None,
+        provider: Optional[Union[BaseLLMProvider, str]] = None,
         user_id: Optional[UUID] = None,
         enable_ai_fallback: bool = False,
     ) -> OrchestrationTurnResponse:
         """Processes a customer message turn through context loading, LLM inference, tools, and DB persistence."""
         start_time = time.time()
-        active_provider = provider or get_ai_provider()
+        if isinstance(provider, str):
+            active_provider = get_ai_provider(provider)
+        elif provider is not None:
+            active_provider = provider
+        else:
+            active_provider = get_ai_provider()
 
         try:
             # 1. Load Conversation session with row lock and enforce lifecycle state
@@ -106,10 +111,36 @@ class ConversationOrchestrator:
             tool_definitions = tool_registry.get_tool_definitions()
             executed_tools: List[Dict[str, Any]] = []
 
-            response: LLMResponse = await active_provider.generate_response(
-                messages=full_dialogue,
-                tools=tool_definitions,
-            )
+            try:
+                response: LLMResponse = await active_provider.generate_response(
+                    messages=full_dialogue,
+                    tools=tool_definitions,
+                )
+            except Exception as provider_err:
+                fallback_provider = None
+                if active_provider.provider_name == "openai" and settings.GEMINI_API_KEY:
+                    logger.warning(
+                        "Primary provider 'openai' failed (%s). Attempting automatic failover to 'gemini'.",
+                        provider_err,
+                    )
+                    from backend.app.ai.providers.gemini_provider import GeminiProvider
+                    fallback_provider = GeminiProvider(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
+                elif active_provider.provider_name == "gemini" and settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.startswith("sk-"):
+                    logger.warning(
+                        "Primary provider 'gemini' failed (%s). Attempting automatic failover to 'openai'.",
+                        provider_err,
+                    )
+                    from backend.app.ai.providers.openai_provider import OpenAIProvider
+                    fallback_provider = OpenAIProvider(api_key=settings.OPENAI_API_KEY, model=settings.OPENAI_MODEL)
+
+                if fallback_provider:
+                    active_provider = fallback_provider
+                    response = await active_provider.generate_response(
+                        messages=full_dialogue,
+                        tools=tool_definitions,
+                    )
+                else:
+                    raise
 
             # Loop if LLM emits tool calls (bounded by MAX_TOOL_LOOPS)
             loop_count = 0
@@ -205,7 +236,7 @@ class ConversationOrchestrator:
                 await db.rollback()
                 raise
 
-            logger.warning(
+            logger.exception(
                 "AI generation failed for conversation %s: %s. Initiating graceful AI fallback.",
                 conversation_id, exc
             )

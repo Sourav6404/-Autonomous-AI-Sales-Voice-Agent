@@ -1,10 +1,12 @@
 """Google Gemini API provider implementation using asynchronous REST calls."""
 
+import asyncio
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 
+from backend.app.core.config import settings
 from backend.app.ai.providers.base import (
     AIProviderAuthenticationError,
     AIProviderError,
@@ -33,6 +35,16 @@ class GeminiProvider(BaseLLMProvider):
         super().__init__(provider_name="gemini", model=model, timeout=timeout)
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self._shared_client: Optional[httpx.AsyncClient] = None
+
+    def _get_shared_client(self) -> httpx.AsyncClient:
+        if self._shared_client is None or self._shared_client.is_closed:
+            self._shared_client = httpx.AsyncClient(
+                timeout=self.timeout,
+                verify=False,
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return self._shared_client
 
     def _ensure_api_key(self) -> str:
         if not self.api_key or self.api_key.strip() == "":
@@ -58,17 +70,21 @@ class GeminiProvider(BaseLLMProvider):
                     parts.append({"text": msg.content})
                 if msg.tool_calls:
                     for tc in msg.tool_calls:
-                        parts.append({
-                            "functionCall": {
-                                "name": tc.name,
-                                "args": tc.arguments,
-                            }
-                        })
+                        call_dict: Dict[str, Any] = {
+                            "name": tc.name,
+                            "args": tc.arguments,
+                        }
+                        if tc.id and not tc.id.startswith("call_"):
+                            call_dict["id"] = tc.id
+                        part_dict: Dict[str, Any] = {"functionCall": call_dict}
+                        if tc.thought_signature:
+                            part_dict["thoughtSignature"] = tc.thought_signature
+                        parts.append(part_dict)
                 contents.append({"role": "model", "parts": parts})
             elif msg.role == "tool":
-                # Function response for Gemini
+                # Function response for Gemini (must have role: "user")
                 contents.append({
-                    "role": "function",
+                    "role": "user",
                     "parts": [
                         {
                             "functionResponse": {
@@ -127,23 +143,31 @@ class GeminiProvider(BaseLLMProvider):
         url = f"{self.base_url}/models/{clean_model}:generateContent?key={api_key}"
 
         async def _make_request(http_client: httpx.AsyncClient) -> Dict[str, Any]:
-            res = await http_client.post(url, json=payload)
-            if res.status_code == 400 and "API_KEY_INVALID" in res.text:
-                raise AIProviderAuthenticationError("Invalid Gemini API key.", self.provider_name, 401)
-            elif res.status_code == 429:
-                raise AIProviderRateLimitError("Gemini rate limit exceeded.", self.provider_name, 429)
-            elif res.status_code >= 500:
-                raise AIProviderTransientError(f"Gemini service error ({res.status_code}).", self.provider_name, res.status_code)
-            elif res.status_code != 200:
-                raise AIProviderError(f"Gemini API error: {res.text}", self.provider_name, res.status_code)
-            return res.json()
+            max_attempts = 5
+            for attempt in range(max_attempts):
+                res = await http_client.post(url, json=payload)
+                if res.status_code in (429, 502, 503, 504) and attempt < max_attempts - 1:
+                    delay = min(1.5 * (2 ** attempt), 6.0)
+                    logger.warning(
+                        "Gemini %s on attempt %s. Retrying in %ss... Details: %s",
+                        res.status_code, attempt + 1, delay, res.text[:200]
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                if res.status_code == 400 and "API_KEY_INVALID" in res.text:
+                    raise AIProviderAuthenticationError("Invalid Gemini API key.", self.provider_name, 401)
+                elif res.status_code == 429:
+                    raise AIProviderRateLimitError("Gemini rate limit exceeded.", self.provider_name, 429)
+                elif res.status_code >= 500:
+                    raise AIProviderTransientError(f"Gemini service error ({res.status_code}).", self.provider_name, res.status_code)
+                elif res.status_code != 200:
+                    raise AIProviderError(f"Gemini API error: {res.text}", self.provider_name, res.status_code)
+                return res.json()
 
         try:
-            if client:
-                data = await _make_request(client)
-            else:
-                async with httpx.AsyncClient(timeout=self.timeout) as default_client:
-                    data = await _make_request(default_client)
+            active_client = client or self._get_shared_client()
+            data = await _make_request(active_client)
         except httpx.TimeoutException as e:
             raise AIProviderTransientError("Gemini request timed out.", self.provider_name) from e
         except httpx.NetworkError as e:
@@ -166,23 +190,30 @@ class GeminiProvider(BaseLLMProvider):
                 if parsed_tool_calls is None:
                     parsed_tool_calls = []
                 fc = part["functionCall"]
+                thought_sig = part.get("thoughtSignature") or fc.get("thought_signature") or part.get("thought_signature")
                 parsed_tool_calls.append(
                     ToolCall(
-                        id=f"call_{fc.get('name')}",
+                        id=fc.get("id") or f"call_{fc.get('name')}",
                         name=fc.get("name", ""),
                         arguments=fc.get("args", {}),
+                        thought_signature=thought_sig,
                     )
                 )
 
         finish_reason = first_candidate.get("finishReason")
         usage_metadata = data.get("usageMetadata", {})
+        usage_dict = {
+            "prompt_tokens": int(usage_metadata.get("promptTokenCount", 0)),
+            "completion_tokens": int(usage_metadata.get("candidatesTokenCount", 0)),
+            "total_tokens": int(usage_metadata.get("totalTokenCount", 0)),
+        }
 
         return LLMResponse(
             content=text_content if text_content else None,
             role="assistant",
             tool_calls=parsed_tool_calls,
             finish_reason=finish_reason,
-            usage=usage_metadata,
+            usage=usage_dict,
             model=self.model,
             provider=self.provider_name,
         )
@@ -217,7 +248,7 @@ class GeminiProvider(BaseLLMProvider):
         clean_model = self.model.removeprefix("models/")
         url = f"{self.base_url}/models/{clean_model}:streamGenerateContent?alt=sse&key={api_key}"
 
-        client_to_use = client or httpx.AsyncClient(timeout=self.timeout)
+        client_to_use = client or httpx.AsyncClient(timeout=self.timeout, verify=False)
         should_close = client is None
 
         try:

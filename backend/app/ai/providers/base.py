@@ -11,6 +11,7 @@ class ToolCall(BaseModel):
     id: str = Field(..., description="Unique tool call execution ID")
     name: str = Field(..., description="Target tool identifier")
     arguments: Dict[str, Any] = Field(default_factory=dict, description="Parsed arguments dictionary")
+    thought_signature: Optional[str] = Field(default=None, description="Optional thought signature for reasoning models")
 
 
 class ToolDefinition(BaseModel):

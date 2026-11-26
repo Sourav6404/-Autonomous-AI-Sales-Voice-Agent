@@ -75,20 +75,20 @@ class Settings(BaseSettings):
     DEEPGRAM_MODEL: str = "nova-2"
     TTS_PROVIDER: Literal["cartesia", "elevenlabs", "mock"] = "cartesia"
     CARTESIA_API_KEY: Optional[str] = None
-    CARTESIA_MODEL: str = "sonic-english"
-    CARTESIA_VOICE_ID: str = "a0e99841-438c-4a64-b679-ae501e7d6091"
+    CARTESIA_MODEL: str = "sonic-latest"
+    CARTESIA_VOICE_ID: str = "6385d6e7-e385-4693-b2b6-c76260452d71"
     ELEVENLABS_API_KEY: Optional[str] = None
     ELEVENLABS_VOICE_ID: str = "21m00Tcm4TlvDq8ikWAM"
     VAD_THRESHOLD: float = 0.02
-    VAD_SILENCE_TIMEOUT_MS: int = 400
-    VAD_SPEECH_TRIGGER_MS: int = 80
+    VAD_SILENCE_TIMEOUT_MS: int = 900
+    VAD_SPEECH_TRIGGER_MS: int = 60
 
     # AI & LLM Provider Configuration
     DEFAULT_AI_PROVIDER: Literal["openai", "gemini"] = "openai"
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
     AI_MAX_RETRIES: int = 2
     CONVERSATION_HISTORY_LIMIT: int = 15

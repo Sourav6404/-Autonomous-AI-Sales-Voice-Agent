@@ -60,12 +60,12 @@ class AppointmentAvailabilityService:
             select(BusinessSettings).where(BusinessSettings.org_id == org_id)
         )
         settings = settings_res.scalar_one_or_none()
-        if settings and settings.is_emergency_closure:
+        if settings and getattr(settings, "is_emergency_closure", False):
             return AppointmentAvailabilityResponse(
                 date=target_date,
                 timezone=tz_name,
                 business_open=False,
-                reason=settings.emergency_closure_reason or "Emergency closure in effect",
+                reason=getattr(settings, "emergency_closure_reason", None) or "Emergency closure in effect",
                 slots=[],
             )
 

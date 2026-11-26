@@ -171,6 +171,23 @@ function redirectByRole(role) {
   }
 }
 
+function formatErrorMessage(data, fallback = 'Invalid email or password') {
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  if (typeof data.detail === 'string') return data.detail;
+  if (Array.isArray(data.detail)) {
+    return data.detail.map(item => {
+      if (typeof item === 'string') return item;
+      return item.msg || item.message || JSON.stringify(item);
+    }).join('; ');
+  }
+  if (data.detail && typeof data.detail === 'object') {
+    return data.detail.msg || data.detail.message || JSON.stringify(data.detail);
+  }
+  if (typeof data.message === 'string') return data.message;
+  return fallback;
+}
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = document.getElementById('loginBtn');
@@ -183,14 +200,14 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   const password = document.getElementById('password').value;
 
   try {
-    const res = await fetch('/api/v1/auth/login', {
+    const res = await fetch('/v1/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ username: email, password })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), password: password })
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.detail || data.message || 'Invalid credentials');
+      throw new Error(formatErrorMessage(data));
     }
     const token = data.access_token;
     const payload = JSON.parse(atob(token.split('.')[1]));
@@ -198,7 +215,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     localStorage.setItem(ROLE_KEY, payload.role || '');
     redirectByRole(payload.role || '');
   } catch (err) {
-    errEl.textContent = err.message;
+    errEl.textContent = err.message || 'Login failed. Please check your credentials.';
     errEl.style.display = 'block';
     btn.disabled = false;
     btn.textContent = 'Sign In';

@@ -137,7 +137,7 @@ def get_embedding_service(force_deterministic: bool = False) -> BaseEmbeddingSer
 
     is_production = getattr(settings, "APP_ENV", "development").lower() == "production"
 
-    if settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("mock-") and not force_deterministic:
+    if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.startswith("sk-") and not force_deterministic:
         try:
             logger.info("Initializing OpenAIEmbeddingService with text-embedding-3-small (dim=384)")
             _embedding_instance = OpenAIEmbeddingService(api_key=settings.OPENAI_API_KEY)

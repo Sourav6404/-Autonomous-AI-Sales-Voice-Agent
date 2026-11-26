@@ -35,6 +35,10 @@ class BaseSTTService(ABC):
         pass
 
     @abstractmethod
+    def rollback_transcript(self, text: str) -> None:
+        """Restores transcript if a turn was cancelled while LLM was processing."""
+        pass
+
     async def close(self) -> None:
         """Cleanly closes upstream connections."""
         pass
@@ -79,7 +83,7 @@ class DeepgramSTTService(BaseSTTService):
             f"&encoding=linear16"
             f"&sample_rate={self.sample_rate}"
             f"&channels=1"
-            f"&endpointing=300"
+            f"&endpointing=800"
             f"&interim_results=true"
             f"&smart_format=true"
         )
@@ -98,18 +102,38 @@ class DeepgramSTTService(BaseSTTService):
         else:
             connect_kwargs["extra_headers"] = headers
 
-        try:
-            self.ws = await websockets.connect(
-                url,
-                **connect_kwargs,
-            )
-            self.is_connected = True
-            self.receive_task = asyncio.create_task(self._receive_loop())
-            logger.info("Connected to Deepgram streaming STT (%s)", self.model)
-        except Exception as e:
-            logger.error("Failed to connect to Deepgram streaming WebSocket: %s", e)
-            self.is_connected = False
-            raise
+        import ssl
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        max_attempts = 4
+        last_exc = None
+        for attempt in range(max_attempts):
+            try:
+                self.ws = await websockets.connect(
+                    url,
+                    ssl=ssl_ctx,
+                    **connect_kwargs,
+                )
+                self.is_connected = True
+                self.receive_task = asyncio.create_task(self._receive_loop())
+                logger.info("Connected to Deepgram streaming STT (%s)", self.model)
+                if getattr(self, "on_status", None):
+                    asyncio.create_task(self.on_status("connected"))
+                return
+            except Exception as e:
+                last_exc = e
+                self.is_connected = False
+                if attempt < max_attempts - 1:
+                    logger.warning(
+                        "Deepgram connection attempt %s failed (%s). Retrying in %ss...",
+                        attempt + 1, e, 0.5 * (attempt + 1)
+                    )
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                else:
+                    logger.error("Failed to connect to Deepgram streaming WebSocket after %s attempts: %s", max_attempts, e)
+                    raise last_exc
 
     async def _receive_loop(self) -> None:
         """Listens for transcript events from Deepgram."""
@@ -131,24 +155,49 @@ class DeepgramSTTService(BaseSTTService):
                                     self.accumulated_transcript += " " + transcript
                                 else:
                                     self.accumulated_transcript = transcript
+                                current_turn = self.accumulated_transcript
+                            else:
+                                current_turn = (
+                                    (self.accumulated_transcript + " " + transcript).strip()
+                                    if self.accumulated_transcript
+                                    else transcript
+                                )
 
-                            if self.on_transcript:
-                                await self.on_transcript(transcript, is_final or speech_final)
+                            if self.on_transcript and current_turn:
+                                # Stream growing interim text during speech
+                                await self.on_transcript(current_turn, False)
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error("Error in Deepgram receive loop: %s", e)
         finally:
             self.is_connected = False
+            if getattr(self, "on_status", None):
+                try:
+                    await self.on_status("disconnected")
+                except Exception:
+                    pass
+
+    async def _background_reconnect(self) -> None:
+        try:
+            await self.start(self.on_transcript)
+        except Exception as e:
+            logger.warning("Background STT reconnect failed: %s", e)
+        finally:
+            self._reconnecting = False
 
     async def send_audio(self, pcm_bytes: bytes) -> None:
         """Sends binary audio to Deepgram."""
-        if self.ws and self.is_connected:
-            try:
-                await self.ws.send(pcm_bytes)
-            except Exception as e:
-                logger.warning("Error streaming audio to Deepgram: %s", e)
-                self.is_connected = False
+        if not self.is_connected or not self.ws:
+            if not getattr(self, "_reconnecting", False):
+                self._reconnecting = True
+                asyncio.create_task(self._background_reconnect())
+            return
+        try:
+            await self.ws.send(pcm_bytes)
+        except Exception as e:
+            logger.warning("Error streaming audio to Deepgram: %s", e)
+            self.is_connected = False
 
     async def finish_turn(self) -> str:
         """Flushes turn and returns transcript."""
@@ -161,6 +210,16 @@ class DeepgramSTTService(BaseSTTService):
         result = self.accumulated_transcript.strip()
         self.accumulated_transcript = ""
         return result
+
+    def rollback_transcript(self, text: str) -> None:
+        """Restores transcript if a turn was cancelled while LLM was processing."""
+        clean = text.strip()
+        if clean:
+            if self.accumulated_transcript:
+                self.accumulated_transcript = clean + " " + self.accumulated_transcript
+            else:
+                self.accumulated_transcript = clean
+            logger.info("Restored transcript back into STT accumulator: '%s'", self.accumulated_transcript)
 
     async def close(self) -> None:
         """Terminates WebSocket session."""
@@ -208,10 +267,18 @@ class MockSTTService(BaseSTTService):
     async def finish_turn(self) -> str:
         phrase = self.script[self.script_index % len(self.script)]
         self.script_index += 1
-        if self.on_transcript:
-            await self.on_transcript(phrase, True)
         self.bytes_received = 0
         return phrase
+
+    def rollback_transcript(self, text: str) -> None:
+        """Restores transcript if a turn was cancelled while LLM was processing."""
+        clean = text.strip()
+        if clean:
+            if self.accumulated_transcript:
+                self.accumulated_transcript = clean + " " + self.accumulated_transcript
+            else:
+                self.accumulated_transcript = clean
+            logger.info("Restored transcript back into STT accumulator: '%s'", self.accumulated_transcript)
 
     async def close(self) -> None:
         pass

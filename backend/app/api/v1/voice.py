@@ -268,6 +268,19 @@ async def voice_stream_websocket(
 
                 session.audio_buffer.extend(audio_bytes)
 
+                # Diagnostic counters
+                session.frames_received = getattr(session, "frames_received", 0) + 1
+                session.bytes_received = getattr(session, "bytes_received", 0) + len(audio_bytes)
+                if session.frames_received % 50 == 0:
+                    try:
+                        await websocket.send_text(json.dumps({
+                            "type": "audio_diagnostics",
+                            "backend_frames": session.frames_received,
+                            "backend_bytes": session.bytes_received,
+                        }))
+                    except Exception:
+                        pass
+
                 # Stream audio into real-time voice pipeline
                 await pipeline.process_incoming_pcm(audio_bytes)
 
@@ -313,6 +326,8 @@ async def voice_stream_websocket(
                                 org_id=session.org_id,
                                 consent=start_msg.recording_consent,
                             )
+                        # Automatically generate and speak friendly greeting via real LLM + Cartesia TTS
+                        asyncio.create_task(pipeline.trigger_initial_greeting())
 
                 except ValidationError as ve:
                     logger.warning("Malformed voice control frame: %s", ve)
