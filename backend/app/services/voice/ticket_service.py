@@ -30,12 +30,15 @@ class VoiceTicketService:
     """Manages creation, atomic redemption, and lifecycle of voice-session tickets."""
 
     _redis_client = None
+    _redis_disabled_for_tests = False
     _in_memory_store = {}
     _in_memory_lock = threading.Lock()
 
     @classmethod
     def _get_redis(cls):
         """Initializes or returns active Redis connection if configured."""
+        if cls._redis_disabled_for_tests:
+            return None
         if cls._redis_client is None and settings.REDIS_URL:
             try:
                 import redis
@@ -221,4 +224,9 @@ class VoiceTicketService:
     @classmethod
     def set_redis_client_for_tests(cls, client):
         """Sets or clears active Redis client for testing."""
-        cls._redis_client = client
+        if client is None:
+            cls._redis_client = None
+            cls._redis_disabled_for_tests = True
+        else:
+            cls._redis_client = client
+            cls._redis_disabled_for_tests = False

@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 import websockets
 
 from backend.app.core.config import settings
@@ -43,13 +43,15 @@ class BaseSTTService(ABC):
 class DeepgramSTTService(BaseSTTService):
     """Streaming STT implementation using Deepgram's real-time Nova-2 WebSocket API."""
 
+    _UNSET = object()
+
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: Any = _UNSET,
         model: Optional[str] = None,
         sample_rate: int = 16000,
     ):
-        self.api_key = api_key or settings.DEEPGRAM_API_KEY
+        self.api_key = settings.DEEPGRAM_API_KEY if api_key is self._UNSET else api_key
         self.model = model or settings.DEEPGRAM_MODEL
         self.sample_rate = sample_rate
 
@@ -85,12 +87,21 @@ class DeepgramSTTService(BaseSTTService):
             "Authorization": f"Token {self.api_key}",
         }
 
+        connect_kwargs = {
+            "ping_interval": 10,
+            "ping_timeout": 10,
+        }
+        import inspect
+        sig = inspect.signature(websockets.connect)
+        if "additional_headers" in sig.parameters:
+            connect_kwargs["additional_headers"] = headers
+        else:
+            connect_kwargs["extra_headers"] = headers
+
         try:
             self.ws = await websockets.connect(
                 url,
-                extra_headers=headers,
-                ping_interval=10,
-                ping_timeout=10,
+                **connect_kwargs,
             )
             self.is_connected = True
             self.receive_task = asyncio.create_task(self._receive_loop())

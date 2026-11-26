@@ -9,7 +9,7 @@ import asyncio
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, AsyncIterator, Awaitable, Callable, List, Optional
+from typing import Any, AsyncGenerator, AsyncIterator, Awaitable, Callable, List, Optional
 import httpx
 
 from backend.app.core.config import settings
@@ -76,14 +76,16 @@ class BaseTTSService(ABC):
 class CartesiaTTSService(BaseTTSService):
     """Low-latency streaming TTS using Cartesia Sonic HTTP raw PCM endpoint."""
 
+    _UNSET = object()
+
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: Any = _UNSET,
         model: Optional[str] = None,
         voice_id: Optional[str] = None,
         sample_rate: int = 16000,
     ):
-        self.api_key = api_key or settings.CARTESIA_API_KEY
+        self.api_key = settings.CARTESIA_API_KEY if api_key is self._UNSET else api_key
         self.model = model or settings.CARTESIA_MODEL
         self.voice_id = voice_id or settings.CARTESIA_VOICE_ID
         self.sample_rate = sample_rate
@@ -148,13 +150,15 @@ class CartesiaTTSService(BaseTTSService):
 class ElevenLabsTTSService(BaseTTSService):
     """Streaming TTS using ElevenLabs Turbo v2.5 streaming PCM endpoint."""
 
+    _UNSET = object()
+
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: Any = _UNSET,
         voice_id: Optional[str] = None,
         sample_rate: int = 16000,
     ):
-        self.api_key = api_key or settings.ELEVENLABS_API_KEY
+        self.api_key = settings.ELEVENLABS_API_KEY if api_key is self._UNSET else api_key
         self.voice_id = voice_id or settings.ELEVENLABS_VOICE_ID
         self.sample_rate = sample_rate
 
